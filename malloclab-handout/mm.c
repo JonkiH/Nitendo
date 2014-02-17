@@ -26,19 +26,19 @@
  *
  * === User information ===
  * Group: 
- * User 1: 
- * SSN: X
+ * User 1: Jón Heiðar Erlendsson 
+ * SSN: 1307794259
  * User 2: 
  * SSN: X
  * === End User Information ===
  ********************************************************/
 team_t team = {
     /* Group name */
-    "ymislegt",
+    "Nitendo",
     /* First member's full name */
-    "Ymir Vigfusson",
+    "Jón Heiðar Erlendsson",
     /* First member's email address */
-    "ymir@ru.is",
+    "jone11@ru.is",
     /* Second member's full name (leave blank if none) */
     "",
     /* Second member's email address (leave blank if none) */
