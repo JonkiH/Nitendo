@@ -75,6 +75,12 @@ void *FREE; // point at the first free memmory.
  */
 void *findbestfit(size_t size);
 
+void freetree(void *ptr, void *tree);
+
+void insertleaf(void *ptr);
+void *left(void *ptr);
+void *down(void *ptr);
+void *right(void *ptr);
 /* 
  * mm_init - initialize the malloc package.
  */
@@ -124,7 +130,7 @@ void mm_free(void *ptr)
      *(size_t *)FREE -= 1; // set mark bit as unused
    }
    else {
-     
+     freetree(ptr - SIZE_T_SIZE, FREE);
    }
 }
 
@@ -160,11 +166,40 @@ void *findbestfit(size_t size) {
     return 0;
 }
 
+void freetree(void *ptr, void *tree){
+    printf("ble %x, and %x  ", *(size_t *)ptr, *(size_t *)FREE); 
+    int compear = *(size_t *)ptr - *(size_t *)FREE;
 
+    if (compear < 0){
+       printf("left \n");
+    }
+    else if (compear == 0){
+       printf("down \n");
+    }
+    else {
+       printf("right \n");
+    }
+    /*
+     * TO DO
+     */
+}
 
+void insertleaf(void *ptr){
+   
+   /*
+    * TO DO
+    */
+}
 
+void *left(void *ptr){
+    return 0;
+}
 
+void *down(void *ptr){
+    return 0;
+}
 
-
-
+void *right(void *ptr){
+    return 0;
+}
 
