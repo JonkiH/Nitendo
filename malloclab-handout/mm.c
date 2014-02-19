@@ -58,10 +58,22 @@ team_t team = {
 
 #define SIZE_T_SIZE (ALIGN(sizeof(size_t)))
 
-/* Globla varibles */
-int *FIRST; // point at the start of the memmory.
-int *FREE; // point at the first free memmory.
+/*
+ * Globla varibles 
+ */
+void *FIRST; // point at the start of the memmory.
+void *FREE; // point at the first free memmory.
 
+
+/*
+ * Hellper function
+ */
+
+/*
+ * return the best fit of free memmory, if not finding memmory 
+ * return -1;
+ */
+void *findbestfit(size_t size);
 
 /* 
  * mm_init - initialize the malloc package.
@@ -72,7 +84,6 @@ int mm_init(void)
 	FIRST = mem_heap_hi();
 	if (FIRST == 0)
 	     return -1;
-	FREE = FIRST;
     }
     return 0;
 }
@@ -89,12 +100,16 @@ void *mm_malloc(size_t size)
      */
     int oversize = size + 3;
     int newsize = ALIGN(oversize + SIZE_T_SIZE);
-    void *p = mem_sbrk(newsize);
-    //printf("The size is: %d, and the newsize is: %d\n", size, newsize);
+    void *p;
+    if ((p = findbestfit(newsize)) != 0);
+    else 
+        p = mem_sbrk(newsize);
+    
     if (p == (void *)-1)
 	return NULL;
     else {
-        *(size_t *)p = oversize;
+        *(size_t *)p = (oversize << 1) + 1; // lshift by 1 and add the mark bit as used.
+        *(size_t *)(p + (oversize - SIZE_T_SIZE)) = p; // point at begin
         return (void *)((char *)p + SIZE_T_SIZE);
     }
 }
@@ -104,7 +119,13 @@ void *mm_malloc(size_t size)
  */
 void mm_free(void *ptr)
 {
-   // printf("DELETING: %x \n", ptr);
+   if (FREE == 0) {
+     FREE = ptr - SIZE_T_SIZE;
+     *(size_t *)FREE -= 1; // set mark bit as unused
+   }
+   else {
+     
+   }
 }
 
 /*
@@ -129,8 +150,15 @@ void *mm_realloc(void *ptr, size_t size)
 
 
 
-
-
+/*
+ * Helperfunction implimentiations
+ */
+void *findbestfit(size_t size) {
+    /*
+     * To DO
+     */
+    return 0;
+}
 
 
 
