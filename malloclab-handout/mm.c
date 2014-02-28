@@ -77,7 +77,8 @@ void *findbestfit(size_t size);
 
 void freetree(void *ptr, void *tree);
 
-void insertleaf(void *ptr);
+void insertempty(void *ptr);
+void *insertnode(void *ptr);
 void *left(void *ptr);
 void *down(void *ptr);
 void *right(void *ptr);
@@ -128,7 +129,7 @@ void mm_free(void *ptr)
 {
    if (TREE == 0) {
      TREE = ptr - SIZE_T_SIZE;
-     insertleaf(TREE);
+     insertempty(TREE);
      *(size_t *)TREE -= 1; // set mark bit as unused
    }
    else {
@@ -171,8 +172,9 @@ void *findbestfit(size_t size) {
 void freetree(void *ptr, void *tree){
 //    printf("ble %x, and %x \n ", *(size_t *)ptr, *(size_t *)TREE); 
     int compear = *(size_t *)ptr - *(size_t *)TREE;
-    insertleaf(ptr);
+    insertempty(ptr);
     if (compear < 0){
+      
 //       printf("left \n");
     }
     else if (compear == 0){
@@ -185,20 +187,20 @@ void freetree(void *ptr, void *tree){
 /*
  * Insert two null pointers
  */
-void insertleaf(void *ptr){
+void insertempty(void *ptr){
   *(size_t *)(ptr + SIZE_T_SIZE) = 0;
   *(size_t *)(ptr + (2 * SIZE_T_SIZE)) = 0;
 }
 
 void *left(void *ptr){
-    return 0;
+  return (ptr + SIZE_T_SIZE);
 }
 
 void *down(void *ptr){
-    return 0;
+  return 0;
 }
 
 void *right(void *ptr){
-    return 0;
+  return (ptr + SIZE_T_SIZE + SIZE_T_SIZE);
 }
 
