@@ -25,10 +25,10 @@
  * struct that follows.
  *
  * === User information ===
- * Group: 
- * User 1: Jón Heiðar Erlendsson 
+ * Group: Nitendo 
+ * User 1: jone11	 
  * SSN: 1307794259
- * User 2: Ragnar Ómarsson 
+ * User 2: ragnaro08 
  * SSN: 2903842579
  * === End User Information ===
  ********************************************************/
@@ -62,7 +62,7 @@ team_t team = {
  * Globla varibles 
  */
 void *FIRST; // point at the start of the memmory.
-void *FREE; // point at the first free memmory.
+void *TREE; // point at the first free memmory.
 
 
 /*
@@ -107,17 +107,18 @@ void *mm_malloc(size_t size)
     int oversize = size + 3;
     int newsize = ALIGN(oversize + SIZE_T_SIZE);
     void *p;
-    if ((p = findbestfit(newsize)) != 0);
-    else 
-        p = mem_sbrk(newsize);
     
-    if (p == (void *)-1)
-	return NULL;
-    else {
-        *(size_t *)p = (oversize << 1) + 1; // lshift by 1 and add the mark bit as used.
-        *(size_t *)(p + (oversize - SIZE_T_SIZE)) = p; // point at begin
-        return (void *)((char *)p + SIZE_T_SIZE);
-    }
+  if ((p = findbestfit(newsize)) != 0);
+  else 
+    p = mem_sbrk(newsize);
+    
+  if (p == (void *)-1)
+    return NULL;
+  else {
+    *(size_t *)p = (oversize << 1) + 1; // lshift by 1 and add the mark bit as used.
+    *(size_t *)(p + (oversize - SIZE_T_SIZE)) = p; // point at begin
+    return (void *)((char *)p + SIZE_T_SIZE);
+  }
 }
 
 /*
@@ -125,12 +126,13 @@ void *mm_malloc(size_t size)
  */
 void mm_free(void *ptr)
 {
-   if (FREE == 0) {
-     FREE = ptr - SIZE_T_SIZE;
-     *(size_t *)FREE -= 1; // set mark bit as unused
+   if (TREE == 0) {
+     TREE = ptr - SIZE_T_SIZE;
+     insertleaf(TREE);
+     *(size_t *)TREE -= 1; // set mark bit as unused
    }
    else {
-     freetree(ptr - SIZE_T_SIZE, FREE);
+     freetree(ptr - SIZE_T_SIZE, TREE);
    }
 }
 
@@ -167,28 +169,25 @@ void *findbestfit(size_t size) {
 }
 
 void freetree(void *ptr, void *tree){
-    printf("ble %x, and %x  ", *(size_t *)ptr, *(size_t *)FREE); 
-    int compear = *(size_t *)ptr - *(size_t *)FREE;
-
+//    printf("ble %x, and %x \n ", *(size_t *)ptr, *(size_t *)TREE); 
+    int compear = *(size_t *)ptr - *(size_t *)TREE;
+    insertleaf(ptr);
     if (compear < 0){
-       printf("left \n");
+//       printf("left \n");
     }
     else if (compear == 0){
-       printf("down \n");
+//       printf("down \n");
     }
     else {
-       printf("right \n");
+//       printf("right \n");
     }
-    /*
-     * TO DO
-     */
 }
-
+/*
+ * Insert two null pointers
+ */
 void insertleaf(void *ptr){
-   
-   /*
-    * TO DO
-    */
+  *(size_t *)(ptr + SIZE_T_SIZE) = 0;
+  *(size_t *)(ptr + (2 * SIZE_T_SIZE)) = 0;
 }
 
 void *left(void *ptr){
