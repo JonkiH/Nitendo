@@ -61,8 +61,8 @@ team_t team = {
 /*
  * Globla varibles 
  */
-void *FIRST; // point at the start of the memmory.
-void *TREE; // point at the first free memmory.
+static char *FIRST = 0; // point at the start of the memmory.
+void *TREE = 0;; // point at the first free memmory.
 
 
 /*
@@ -75,7 +75,7 @@ void *TREE; // point at the first free memmory.
  */
 void *findbestfit(size_t size);
 
-void freetree(void *ptr, void *tree);
+void *freetree(void *ptr, void *tree);
 
 void insertempty(void *ptr);
 void *insertnode(void *ptr);
@@ -101,13 +101,13 @@ int mm_init(void)
  */
 void *mm_malloc(size_t size)
 {
-    /*
-     * Oversize is to make room for size of memmory and mark bit
-     * and to make room for 2 pointers if asking for small chunk of memmory.
-     */
-    int oversize = size + 3;
-    int newsize = ALIGN(oversize + SIZE_T_SIZE);
-    void *p;
+  /*
+   * Oversize is to make room for size of memmory and mark bit
+   * and to make room for 2 pointers if asking for small chunk of memmory.
+   */
+  int oversize = size + 3;
+  int newsize = ALIGN(oversize + SIZE_T_SIZE);
+  void *p;
     
   if ((p = findbestfit(newsize)) != 0);
   else 
@@ -117,7 +117,9 @@ void *mm_malloc(size_t size)
     return NULL;
   else {
     *(size_t *)p = (oversize << 1) + 1; // lshift by 1 and add the mark bit as used.
-    *(size_t *)(p + (oversize - SIZE_T_SIZE)) = p; // point at begin
+    void *lastptr = ((char *)p + (newsize - SIZE_T_SIZE));
+    lastptr = p;
+    //= &p; // point at begin
     return (void *)((char *)p + SIZE_T_SIZE);
   }
 }
@@ -127,13 +129,14 @@ void *mm_malloc(size_t size)
  */
 void mm_free(void *ptr)
 {
+   *(size_t *)ptr -= 1; // set mark bit as unused
    if (TREE == 0) {
      TREE = ptr - SIZE_T_SIZE;
      insertempty(TREE);
-     *(size_t *)TREE -= 1; // set mark bit as unused
    }
    else {
-     freetree(ptr - SIZE_T_SIZE, TREE);
+     void *tree = freetree(ptr - SIZE_T_SIZE, TREE);
+     TREE = &tree;
    }
 }
 
@@ -151,8 +154,8 @@ void *mm_realloc(void *ptr, size_t size)
       return NULL;
     copySize = *(size_t *)((char *)oldptr - SIZE_T_SIZE);
     if (size < copySize)
-      copySize = size;
-    memcpy(newptr, oldptr, copySize);
+	      copySize = size;
+	    memcpy(newptr, oldptr, copySize);
     mm_free(oldptr);
     return newptr;
 }
@@ -169,27 +172,31 @@ void *findbestfit(size_t size) {
     return 0;
 }
 
-void freetree(void *ptr, void *tree){
-//    printf("ble %x, and %x \n ", *(size_t *)ptr, *(size_t *)TREE); 
-    int compear = *(size_t *)ptr - *(size_t *)TREE;
-    insertempty(ptr);
+void *freetree(void *ptr, void *tree){ 
+    if (*(size_t *)tree == 0){
+//       printf("ble\n");
+       insertempty(ptr);
+       return ptr;
+    } 
+    int compear = *(size_t *)ptr - *(size_t *)tree;
     if (compear < 0){
-      
-//       printf("left \n");
-    }
-    else if (compear == 0){
-//       printf("down \n");
+//       printf("left %x \n", *(size_t *)tree);
+       void *leftptr = freetree(ptr, left(tree));
+       return leftptr;
     }
     else {
-//       printf("right \n");
+//        printf("right %x \n", *(size_t *)tree);
+	void *rightptr = freetree(ptr, right(tree));
+        return rightptr;
     }
 }
+
 /*
  * Insert two null pointers
  */
 void insertempty(void *ptr){
   *(size_t *)(ptr + SIZE_T_SIZE) = 0;
-  *(size_t *)(ptr + (2 * SIZE_T_SIZE)) = 0;
+  *(size_t *)(ptr + (SIZE_T_SIZE << 1 )) = 0;
 }
 
 void *left(void *ptr){
@@ -201,6 +208,6 @@ void *down(void *ptr){
 }
 
 void *right(void *ptr){
-  return (ptr + SIZE_T_SIZE + SIZE_T_SIZE);
+  return (ptr + (SIZE_T_SIZE + SIZE_T_SIZE));
 }
 
