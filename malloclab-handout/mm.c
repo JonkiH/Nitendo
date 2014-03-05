@@ -73,16 +73,20 @@ team_t team = {
 /*
 (which is about 54/100). Read the size and allocated fields from address p */
 #define GET_SIZE(p)  (p->size & ~0x7)
+#define GET_FSIZE(p) (GET(p) & ~0x7)
 #define GET_ALLOC(p) (p->size & 0x1)
 #define SET_SIZE(p, val)  (p->size = val)  
 
 /* Given block ptr bp, compute address of its header and footer */
-#define HDRP(bp)       ((char *)(bp) - HRD_SIZE)  
+#define HDRP(bp)       ((hdr_p)((char *)(bp) - HDR_SIZE))  
 #define FTRP(bp)       ((char *)(bp) + GET_SIZE(HDRP(bp)) - DSIZE)
 
+/* Given header ptr p, compute address of its block ptr bp*/
+#define BLPTR(p)       ((char *)p + HDR_SIZE)
+
 /* Given block ptr bp, compute address of next and previous blocks */
-#define NEXT_BLKP(bp)  ((char *)(bp) + GET_SIZE(((char *)(bp) - WSIZE)))
-#define PREV_BLKP(bp)  ((char *)(bp) - GET_SIZE(((char *)(bp) - DSIZE)))
+#define NEXT_BLKP(bp)  ((char *)(bp) + GET_SIZE(HDRP(bp)))
+#define PREV_BLKP(bp)  ((char *)(bp) - GET_FSIZE(((char *)(bp) - DSIZE)))
 
 #define SIZE_T_SIZE (ALIGN(sizeof(size_t)))
 #define HDR_SIZE sizeof(struct Header)
@@ -114,14 +118,14 @@ int mm_init(void)
 {   
     /* create the initial empty heap */
     hdr_p p;
-    if ((p = mem_sbrk(OVERHEAD)) == NULL){
+    if ((p = mem_sbrk(ALIGN(OVERHEAD))) == NULL){
       return -1;
     }
     else {
-      p->size = OVERHEAD | 1;
+      p->size = PACK(ALIGN(OVERHEAD), 1);
       p->next=p;
       p->prev=p;
-//      PUT(p+OVERHEAD-FDR_SIZE, PACK(OVERHEAD,1));
+      PUT(((char *)p+GET_SIZE(p)-FDR_SIZE), GET_SIZE(p));      
     }
 //    if ((heap_listp = mem_sbrk(4*WSIZE)) == NULL)
 //        return -1;
@@ -132,7 +136,7 @@ int mm_init(void)
 //    heap_listp += DSIZE;
 
     /* Extend the empty heap with a free block of CHUNKSIZE bytes */
-    if ((p->next = extend_heap(CHUNKSIZE/WSIZE)) == NULL)
+    if ((p->next = extend_heap(CHUNKSIZE/WSIZE)) == 0)
         return -1;
     p->next->prev=p;
     return 0;
@@ -162,17 +166,19 @@ void *mm_malloc(size_t size)
     
     /* Search the free list for a fit */
     if ((p = find_fit(asize)) != NULL) {
-//        bp = (char *)p
-        place(p, asize);
-        return (char *)p+HDR_SIZE;
+        bp = BLPTR(p);
+        place(bp, asize);
+        return bp;
     }
-
-    /* No fit found. Get more memory and place the block */
-    extendsize = MAX(asize,CHUNKSIZE);
-    if ((p = extend_heap(extendsize/WSIZE)) == NULL)
-        return NULL;
-    place(p, asize);
-    return (char *)p+HDR_SIZE;
+    else {
+        /* No fit found. Get more memory and place the block */
+        extendsize = MAX(asize,CHUNKSIZE);
+        if ((p = extend_heap(extendsize/WSIZE)) == NULL)
+            return NULL;
+        bp = BLPTR(p);
+        place(bp, asize);
+        return bp;
+    }
 }
 /* $end mmmalloc */
 
@@ -253,7 +259,7 @@ void mm_checkheap(int verbose)
 /* $begin mmextendheap */
 static void *extend_heap(size_t words)
 {
-    hdr_p bp;
+    void *bp;
     size_t size;
 
     /* Allocate an even number of words to maintain alignment */
@@ -282,13 +288,20 @@ static void *extend_heap(size_t words)
 static void place(void *bp, size_t asize)
 /* $end mmplace-proto */
 {
-/*
+
     size_t csize = GET_SIZE(HDRP(bp));
 
     if ((csize - asize) >= (DSIZE + OVERHEAD)) {
-        PUT(HDRP(bp), PACK(asize, 1));
+        hdr_p p = HDRP(bp);
+	p->size=PACK(asize, 1);
+//	PUT(HDRP(bp), PACK(asize, 1));
         PUT(FTRP(bp), PACK(asize, 1));
         bp = NEXT_BLKP(bp);
+	hdr_p np = HDRP(bp);
+	np->next=p->next;
+	np->prev=p->prev;
+	p->next->prev=np;
+	p->prev->next=np;
         PUT(HDRP(bp), PACK(csize-asize, 0));
         PUT(FTRP(bp), PACK(csize-asize, 0));
     }
@@ -296,7 +309,7 @@ static void place(void *bp, size_t asize)
         PUT(HDRP(bp), PACK(csize, 1));
         PUT(FTRP(bp), PACK(csize, 1));
     }
-*/
+
 }
 /* $end mmplace */
 
