@@ -131,7 +131,7 @@ int mm_init(void)
 //    heap_listp += DSIZE;
 
     /* Extend the empty heap with a free block of CHUNKSIZE bytes */
-    if (extend_heap(CHUNKSIZE/WSIZE) == NULL)
+    if ((p->next = extend_heap(CHUNKSIZE/WSIZE)) == NULL)
         return -1;
     return 0;
 }
