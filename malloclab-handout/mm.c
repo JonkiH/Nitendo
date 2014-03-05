@@ -84,15 +84,16 @@ team_t team = {
 #define PREV_BLKP(bp)  ((char *)(bp) - GET_SIZE(((char *)(bp) - DSIZE)))
 
 #define SIZE_T_SIZE (ALIGN(sizeof(size_t)))
-
+#define HDR_SIZE sizeof(struct Header)
+#define FDR_SIZE 4
 /* $end mallocmacros */
 
-typedef struct Header *hdr_p
+typedef struct Header *hdr_p;
 struct Header {
   size_t size;
   hdr_p next;
   hdr_p prev;
-}
+};
 /* Global variables */
 static char *heap_listp;  /* pointer to first block */
 
@@ -111,13 +112,23 @@ static void checkblock(void *bp);
 int mm_init(void)
 {   
     /* create the initial empty heap */
-    if ((heap_listp = mem_sbrk(4*WSIZE)) == NULL)
-        return -1;
-    PUT(heap_listp, 0);                        /* alignment padding */
-    PUT(heap_listp+WSIZE, PACK(OVERHEAD, 1));  /* prologue header */
-    PUT(heap_listp+DSIZE, PACK(OVERHEAD, 1));  /* prologue footer */
-    PUT(heap_listp+WSIZE+DSIZE, PACK(0, 1));   /* epilogue header */
-    heap_listp += DSIZE;
+    hdr_p p;
+    if ((p = mem_sbrk(ALIGN(HDR_SIZE+FDR_SIZE))) == NULL){
+      return -1;
+    }
+    else {
+      p->size = ALIGN(HDR_SIZE+FDR_SIZE) | 1;
+      p->next=p;
+      p->prev=p;
+      PUT(p+ALIGN(HDR_SIZE+FDR_SIZE)-FDR_SIZE, PACK(ALIGN(HDR_SIZE+FDR_SIZE),1));
+    }
+//    if ((heap_listp = mem_sbrk(4*WSIZE)) == NULL)
+//        return -1;
+//    PUT(heap_listp, 0);                        /* alignment padding */
+//    PUT(heap_listp+WSIZE, PACK(OVERHEAD, 1));  /* prologue header */
+//    PUT(heap_listp+DSIZE, PACK(OVERHEAD, 1));  /* prologue footer */
+//    PUT(heap_listp+WSIZE+DSIZE, PACK(0, 1));   /* epilogue header */
+//    heap_listp += DSIZE;
 
     /* Extend the empty heap with a free block of CHUNKSIZE bytes */
     if (extend_heap(CHUNKSIZE/WSIZE) == NULL)
