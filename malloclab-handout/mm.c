@@ -87,6 +87,12 @@ team_t team = {
 
 /* $end mallocmacros */
 
+typedef struct Header *hdr_p
+struct Header {
+  size_t size;
+  hdr_p next;
+  hdr_p prev;
+}
 /* Global variables */
 static char *heap_listp;  /* pointer to first block */
 
