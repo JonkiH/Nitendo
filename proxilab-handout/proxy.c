@@ -19,7 +19,11 @@
 int parse_uri(char *uri, char *target_addr, char *path, int  *port);
 void format_log_entry(char *logstring, struct sockaddr_in *sockaddr, char *uri, int size);
 void echo(int connfd);
-
+void doit(int fd, int port);
+void read_requesthdrs(rio_t *rp);
+void serve_static(int fd, char *filename, int filesize);
+void server_dynamic(int fd, char *filename, char *cgiargs);
+void clienterror(int fd, char *cause, char *errnum, char *chortmsg, char *longmsg);
 /* 
  * main - Main routine for the proxy program 
  */
@@ -45,8 +49,8 @@ int main(int argc, char **argv)
     	hp = Gethostbyaddr((const char *)&clientaddr.sin_addr.s_addr, sizeof(clientaddr.sin_addr.s_addr), AF_INET);
     	haddrp = inet_ntoa(clientaddr.sin_addr);
     	printf("server connected to %s (%s)\n", hp->h_name, haddrp);
-
-    	echo(connfd);
+    	doit(connfd, port);
+//    	echo(connfd);
     	Close(connfd);
     }
 
@@ -148,4 +152,45 @@ void echo(int connfd){
 		printf("server recived %d bytes\n", n);
 		Rio_writen(connfd, buf, n);
 	}
+}
+
+void doit(int fd, int port) {
+	int is_static;
+	struct stat sbuf;
+	char buf[MAXLINE], method[MAXLINE], uri[MAXLINE], version[MAXLINE];
+	char filename[MAXLINE], cgiargs[MAXLINE];
+	rio_t rio;
+    
+    /* Read request line and headers */
+    Rio_readinitb(&rio, fd);
+	Rio_readlineb(&rio, buf, MAXLINE);
+	sscanf(buf, "%s %s %s", method, uri, version);
+	if (strcasecmp(method, "GET")) {
+//		clienterror(fd, method, "501", "Not Implemented", "Tiny dose not implement this method");
+		return;
+	}
+//	read_requesthdrs(&rio);
+
+	/* Parse URI from GET request*/
+	is_static = parse_uri(uri, filename, cgiargs, port);
+	if (stat(filename, &sbuf) < 0) {
+//		clienterror(fd, filename, "404", "Not found", "Tyni cold't read the file");
+		return;
+	}
+
+	if (is_static) { /* Serve static content */
+		if (!(S_ISREG(sbuf.st_mode)) || (S_IXUSR & sbuf.st_mode)) {
+//			clienterror(fd, filename, "403", "Forbidden", "Tyni couldn't run the CGI program");
+			return;
+		}
+//		serve_static(fd, filename, sbuf.st_size);
+	}
+	else { /* Serve dynamic content */
+		if (!(S_ISREG(sbuf.st_mode)) || !(S_IXUSR & sbuf.st_mode)) {
+//			clienterror(fd, filename, "403", "Forbidden", "Tiny couldn't run the CGI program");
+			return;
+		}
+//		server_dynamic(fd, filename, cgiargs);
+	}
+
 }
