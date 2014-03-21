@@ -24,10 +24,8 @@ void read_requesthdrs(rio_t *rp);
 void serve_static(int fd, char *filename, int filesize);
 void server_dynamic(int fd, char *filename, char *cgiargs);
 void clienterror(int fd, char *cause, char *errnum, char *chortmsg, char *longmsg);
+void get_filetype(char *filename, char *filetype);
 
-void clienterror(int fd, char *cause, char *errnum, char *shortmsg, char *longmsg);
-
-void read_requesthdrs(rio_r *rp);
 
 /* 
  * main - Main routine for the proxy program 
@@ -237,3 +235,14 @@ void read_requesthdrs(rio_t *rp){
     return;
 }
 
+
+void get_filetype(char *filename, char *filetype){
+    if(strstr(filename, ".html"))
+        strcpy(filetype, "text/html");
+    else if(strstr(filename, ".gif"))
+        strcpy(filetype, "image/gif");
+    else if(strstr(filename, ".jpg"))
+        strcpy(filetype, "image/jpeg");
+    else
+        strcpy(filetype, "text/plain");
+}
