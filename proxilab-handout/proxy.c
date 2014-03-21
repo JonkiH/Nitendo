@@ -24,6 +24,8 @@ void read_requesthdrs(rio_t *rp);
 void serve_static(int fd, char *filename, int filesize);
 void server_dynamic(int fd, char *filename, char *cgiargs);
 void clienterror(int fd, char *cause, char *errnum, char *chortmsg, char *longmsg);
+void get_filetype(char *filename, char *filetype);
+
 
 /* 
  * main - Main routine for the proxy program 
@@ -45,13 +47,13 @@ int main(int argc, char **argv)
     listenfd = Open_listenfd(port);
     while (1){
     	clientlen = sizeof(clientaddr);
-    	connfd = Accept(listenfd, (SA *)&clientaddr, &clientlen);
-
-    	hp = Gethostbyaddr((const char *)&clientaddr.sin_addr.s_addr, sizeof(clientaddr.sin_addr.s_addr), AF_INET);
+    	connfd = Accept(listenfd, (SA *)&clientaddr, (socklen_t *)&clientlen);
+     	hp = Gethostbyaddr((const char *)&clientaddr.sin_addr.s_addr, sizeof(clientaddr.sin_addr.s_addr), AF_INET);
     	haddrp = inet_ntoa(clientaddr.sin_addr);
     	printf("server connected to %s (%s)\n", hp->h_name, haddrp);
-    	doit(connfd, port);
 //    	echo(connfd);
+
+    	doit(connfd, port);
     	Close(connfd);
     }
 
@@ -87,9 +89,9 @@ int parse_uri(char *uri, char *hostname, char *pathname, int *port)
     hostname[len] = '\0';
     
     /* Extract the port number */
-    *port = 80; /* default */
-    if (*hostend == ':')   
-	*port = atoi(hostend + 1);
+//    *port = 80; /* default */
+//    if (*hostend == ':')   
+//	   *port = atoi(hostend + 1);
     
     /* Extract the path */
     pathbegin = strchr(hostbegin, '/');
@@ -100,7 +102,7 @@ int parse_uri(char *uri, char *hostname, char *pathname, int *port)
 	pathbegin++;	
 	strcpy(pathname, pathbegin);
     }
-
+    
     return 0;
 }
 
@@ -171,10 +173,10 @@ void doit(int fd, int port) {
 		clienterror(fd, method, "501", "Not Implemented", "Tiny dose not implement this method");
 		return;
 	}
-//	read_requesthdrs(&rio);
+	read_requesthdrs(&rio);
 
 	/* Parse URI from GET request*/
-	is_static = parse_uri(uri, filename, cgiargs, port);
+	is_static = parse_uri(uri, filename, cgiargs, (int *)port);
 	if (stat(filename, &sbuf) < 0) {
 		clienterror(fd, filename, "404", "Not found", "Tyni cold't read the file");
 		return;
@@ -185,16 +187,16 @@ void doit(int fd, int port) {
 			clienterror(fd, filename, "403", "Forbidden", "Tyni couldn't run the CGI program");
 			return;
 		}
-//		serve_static(fd, filename, sbuf.st_size);
+		serve_static(fd, filename, sbuf.st_size);
 	}
 	else { /* Serve dynamic content */
 		if (!(S_ISREG(sbuf.st_mode)) || !(S_IXUSR & sbuf.st_mode)) {
 			clienterror(fd, filename, "403", "Forbidden", "Tiny couldn't run the CGI program");
 			return;
 		}
-//		server_dynamic(fd, filename, cgiargs);
+		server_dynamic(fd, filename, cgiargs);
 	}
-
+	return;
 }
 
 /*
@@ -221,6 +223,7 @@ void clienterror(int fd, char *cause, char *errnum, char *shortmsg, char * longm
     Rio_writen(fd, body, strlen(body));
 }
 
+
 /*
  * Serve_static
  */
@@ -229,7 +232,7 @@ void serve_static(int fd, char *filename, int filesize){
 	char *srcp, filetype[MAXLINE], buf[MAXBUF];
 
 	/* Send response headers to client */
-//	get_filetype(filename, filetype);
+	get_filetype(filename, filetype);
 	sprintf(buf, "HTTP/1.0 200 OK\r\n");
 	sprintf(buf, "%sServer: Tiny Web Server\r\n", buf);
 	sprintf(buf, "%sContent-length: %d\r\n", buf, filesize);
@@ -264,3 +267,28 @@ void server_dynamic(int fd, char *filename, char *cgiargs) {
 	}
 	Wait(NULL); /* Parent waits for and reaps child*/
 }
+
+void read_requesthdrs(rio_t *rp){
+
+    char buf[MAXLINE];
+
+    Rio_readlineb(rp, buf, MAXLINE);
+    while(strcmp(buf, "\r\n")){
+        Rio_readlineb(rp, buf, MAXLINE);
+        printf("%s", buf);
+    }
+    return;
+}
+
+
+void get_filetype(char *filename, char *filetype){
+    if(strstr(filename, ".html"))
+        strcpy(filetype, "text/html");
+    else if(strstr(filename, ".gif"))
+        strcpy(filetype, "image/gif");
+    else if(strstr(filename, ".jpg"))
+        strcpy(filetype, "image/jpeg");
+    else
+        strcpy(filetype, "text/plain");
+}
+ 
