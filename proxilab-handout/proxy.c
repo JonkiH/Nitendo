@@ -19,17 +19,14 @@
 int parse_uri(char *uri, char *target_addr, char *path, int  *port);
 void format_log_entry(char *logstring, struct sockaddr_in *sockaddr, char *uri, int size);
 void echo(int connfd);
-<<<<<<< HEAD
 void doit(int fd, int port);
 void read_requesthdrs(rio_t *rp);
 void serve_static(int fd, char *filename, int filesize);
 void server_dynamic(int fd, char *filename, char *cgiargs);
 void clienterror(int fd, char *cause, char *errnum, char *chortmsg, char *longmsg);
-=======
 
 void clienterror(int fd, char *cause, char *errnum, char *shortmsg, char *longmsg);
 
->>>>>>> 09966deb099013886d60e1935140eec087f15787
 /* 
  * main - Main routine for the proxy program 
  */
@@ -160,7 +157,7 @@ void echo(int connfd){
 	}
 }
 
-<<<<<<< HEAD
+
 void doit(int fd, int port) {
 	int is_static;
 	struct stat sbuf;
@@ -173,7 +170,7 @@ void doit(int fd, int port) {
 	Rio_readlineb(&rio, buf, MAXLINE);
 	sscanf(buf, "%s %s %s", method, uri, version);
 	if (strcasecmp(method, "GET")) {
-//		clienterror(fd, method, "501", "Not Implemented", "Tiny dose not implement this method");
+		clienterror(fd, method, "501", "Not Implemented", "Tiny dose not implement this method");
 		return;
 	}
 //	read_requesthdrs(&rio);
@@ -181,27 +178,27 @@ void doit(int fd, int port) {
 	/* Parse URI from GET request*/
 	is_static = parse_uri(uri, filename, cgiargs, port);
 	if (stat(filename, &sbuf) < 0) {
-//		clienterror(fd, filename, "404", "Not found", "Tyni cold't read the file");
+		clienterror(fd, filename, "404", "Not found", "Tyni cold't read the file");
 		return;
 	}
 
 	if (is_static) { /* Serve static content */
 		if (!(S_ISREG(sbuf.st_mode)) || (S_IXUSR & sbuf.st_mode)) {
-//			clienterror(fd, filename, "403", "Forbidden", "Tyni couldn't run the CGI program");
+			clienterror(fd, filename, "403", "Forbidden", "Tyni couldn't run the CGI program");
 			return;
 		}
 //		serve_static(fd, filename, sbuf.st_size);
 	}
 	else { /* Serve dynamic content */
 		if (!(S_ISREG(sbuf.st_mode)) || !(S_IXUSR & sbuf.st_mode)) {
-//			clienterror(fd, filename, "403", "Forbidden", "Tiny couldn't run the CGI program");
+			clienterror(fd, filename, "403", "Forbidden", "Tiny couldn't run the CGI program");
 			return;
 		}
 //		server_dynamic(fd, filename, cgiargs);
 	}
 
 }
-=======
+
 /*
  *  clienterror
  */
@@ -226,4 +223,3 @@ void clienterror(int fd, char *cause, char *errnum, char *shortmsg, char * longm
     Rio_writen(fd, body, strlen(body));
 }
 
->>>>>>> 09966deb099013886d60e1935140eec087f15787
