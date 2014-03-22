@@ -19,7 +19,7 @@
 int parse_uri(char *uri, char *target_addr, char *path, int  *port);
 void format_log_entry(char *logstring, struct sockaddr_in *sockaddr, char *uri, int size);
 void echo(int connfd);
-void doit(int fd, int port);
+void doit(int fd);
 void read_requesthdrs(rio_t *rp);
 void serve_static(int fd, char *filename, int filesize);
 void server_dynamic(int fd, char *filename, char *cgiargs);
@@ -35,26 +35,26 @@ int main(int argc, char **argv)
 
     int listenfd, connfd, port, clientlen;
     struct sockaddr_in clientaddr;
-    struct hostent *hp;
-    char *haddrp;
     /* Check arguments */
     if (argc != 2) {
-	fprintf(stderr, "Usage: %s <port number>\n", argv[0]);
-	exit(0);
+    fprintf(stderr, "Usage: %s <port number>\n", argv[0]);
+    exit(0);
     }
     port = atoi(argv[1]);
 
     listenfd = Open_listenfd(port);
     while (1){
-    	clientlen = sizeof(clientaddr);
-    	connfd = Accept(listenfd, (SA *)&clientaddr, (socklen_t *)&clientlen);
+        clientlen = sizeof(clientaddr);
+        struct hostent *hp;
+        char *haddrp;
+        connfd = Accept(listenfd, (SA *)&clientaddr, (socklen_t *)&clientlen);
      	hp = Gethostbyaddr((const char *)&clientaddr.sin_addr.s_addr, sizeof(clientaddr.sin_addr.s_addr), AF_INET);
     	haddrp = inet_ntoa(clientaddr.sin_addr);
     	printf("server connected to %s (%s)\n", hp->h_name, haddrp);
 //    	echo(connfd);
 
-    	doit(connfd, port);
-    	Close(connfd);
+    	doit(connfd);
+        Close(connfd);
     }
 
     exit(0);
@@ -77,8 +77,8 @@ int parse_uri(char *uri, char *hostname, char *pathname, int *port)
     int len;
 
     if (strncasecmp(uri, "http://", 7) != 0) {
-	hostname[0] = '\0';
-	return -1;
+	   hostname[0] = '\0';
+	   return -1;
     }
        
     /* Extract the host name */
@@ -89,18 +89,18 @@ int parse_uri(char *uri, char *hostname, char *pathname, int *port)
     hostname[len] = '\0';
     
     /* Extract the port number */
-//    *port = 80; /* default */
-//    if (*hostend == ':')   
-//	   *port = atoi(hostend + 1);
+    *port = 80; /* default */
+    if (*hostend == ':')   
+	   *port = atoi(hostend + 1);
     
     /* Extract the path */
     pathbegin = strchr(hostbegin, '/');
     if (pathbegin == NULL) {
-	pathname[0] = '\0';
+	   pathname[0] = '\0';
     }
     else {
-	pathbegin++;	
-	strcpy(pathname, pathbegin);
+	   pathbegin++;	
+	   strcpy(pathname, pathbegin);
     }
     
     return 0;
@@ -154,49 +154,44 @@ void echo(int connfd){
 	while((n = Rio_readlineb(&rio, buf, MAXLINE)) != 0) {
 		printf("server recived %d bytes\n", n);
 		Rio_writen(connfd, buf, n);
+
 	}
 }
 
 
-void doit(int fd, int port) {
-	int is_static;
-	struct stat sbuf;
-	char buf[MAXLINE], method[MAXLINE], uri[MAXLINE], version[MAXLINE];
-	char filename[MAXLINE], cgiargs[MAXLINE];
+void doit(int fd) {
+	
+    size_t n_bytes;         // Holds number of bytes
+    int session = 1;        // true wile session is ongoing
+    int port;
+//	struct stat sbuf;
+	char buf[MAXLINE];
+    char method[MAXLINE];   // holds POST / GET method
+    char uri[MAXLINE];      // Uniform resourse indendifier
+    char version[MAXLINE];
+	char hostname[MAXLINE]; 
+    char pathname[MAXLINE];
 	rio_t rio;
     
     /* Read request line and headers */
     Rio_readinitb(&rio, fd);
-	Rio_readlineb(&rio, buf, MAXLINE);
-	sscanf(buf, "%s %s %s", method, uri, version);
-	if (strcasecmp(method, "GET")) {
-		clienterror(fd, method, "501", "Not Implemented", "Tiny dose not implement this method");
-		return;
-	}
-	read_requesthdrs(&rio);
+	while (session) {
+        if ((n_bytes = Rio_readlineb(&rio, buf, MAXLINE)) != 0) {
+            sscanf(buf, "%s %s %s", method, uri, version);
+            if (strcasecmp(method, "GET")) { // returns 0 if equals GET
+                clienterror(fd, method, "501", "Not Implemented", "Tiny dose not implement this method");
+                return;
+            }
+            else { // prosesing GET method
+                if (!parse_uri(uri, hostname, pathname, &port))
+                    return;
+            }
 
-	/* Parse URI from GET request*/
-	is_static = parse_uri(uri, filename, cgiargs, (int *)port);
-	if (stat(filename, &sbuf) < 0) {
-		clienterror(fd, filename, "404", "Not found", "Tyni cold't read the file");
-		return;
-	}
+        }
+    }
+    
 
-	if (is_static) { /* Serve static content */
-		if (!(S_ISREG(sbuf.st_mode)) || (S_IXUSR & sbuf.st_mode)) {
-			clienterror(fd, filename, "403", "Forbidden", "Tyni couldn't run the CGI program");
-			return;
-		}
-		serve_static(fd, filename, sbuf.st_size);
-	}
-	else { /* Serve dynamic content */
-		if (!(S_ISREG(sbuf.st_mode)) || !(S_IXUSR & sbuf.st_mode)) {
-			clienterror(fd, filename, "403", "Forbidden", "Tiny couldn't run the CGI program");
-			return;
-		}
-		server_dynamic(fd, filename, cgiargs);
-	}
-	return;
+    
 }
 
 /*
