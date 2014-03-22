@@ -45,13 +45,16 @@ int main(int argc, char **argv)
     listenfd = Open_listenfd(port);
     while (1){
         clientlen = sizeof(clientaddr);
-        struct hostent *hp;
-        char *haddrp;
+
         connfd = Accept(listenfd, (SA *)&clientaddr, (socklen_t *)&clientlen);
-     	hp = Gethostbyaddr((const char *)&clientaddr.sin_addr.s_addr, sizeof(clientaddr.sin_addr.s_addr), AF_INET);
-    	haddrp = inet_ntoa(clientaddr.sin_addr);
-    	printf("server connected to %s (%s)\n", hp->h_name, haddrp);
-//    	echo(connfd);
+        // Just for fun
+        struct hostent *hp;
+        char *haddrp;   
+        hp = Gethostbyaddr((const char *)&clientaddr.sin_addr.s_addr, sizeof(clientaddr.sin_addr.s_addr), AF_INET);
+        haddrp = inet_ntoa(clientaddr.sin_addr);
+        printf("server connected to %s (%s)\n", hp->h_name, haddrp);
+//      echo(connfd);
+        // !Fun
 
     	doit(connfd);
         Close(connfd);
@@ -163,28 +166,42 @@ void doit(int fd) {
 	
     size_t n_bytes;         // Holds number of bytes
     int session = 1;        // true wile session is ongoing
-    int port;
+    int port;               // 
+    int hostfd;
 //	struct stat sbuf;
-	char buf[MAXLINE];
-    char method[MAXLINE];   // holds POST / GET method
-    char uri[MAXLINE];      // Uniform resourse indendifier
-    char version[MAXLINE];
-	char hostname[MAXLINE]; 
-    char pathname[MAXLINE];
-	rio_t rio;
+	char buf[MAXLINE] = "";
+    char method[MAXLINE] = "";   // holds POST / GET method
+    char uri[MAXLINE] = "";      // Uniform resourse indendifier
+    char version[MAXLINE] = "";  // http prodacal version
+	char hostname[MAXLINE] = ""; // name of the site
+    char pathname[MAXLINE] = ""; // name of subsite
+    char body[MAXBUF] = "";      // retrun to client
+	rio_t rio_srv;          // server i/o         
+    rio_t rio_clt;          // client i/o
     
     /* Read request line and headers */
-    Rio_readinitb(&rio, fd);
+    Rio_readinitb(&rio_srv, fd);
 	while (session) {
-        if ((n_bytes = Rio_readlineb(&rio, buf, MAXLINE)) != 0) {
+        if ((n_bytes = Rio_readlineb(&rio_srv, buf, MAXLINE)) != 0) {
             sscanf(buf, "%s %s %s", method, uri, version);
+            printf("buf: %s\nmethod: %s\nuri: %s\nversion: %s\n", buf, method, uri, version);
             if (strcasecmp(method, "GET")) { // returns 0 if equals GET
                 clienterror(fd, method, "501", "Not Implemented", "Tiny dose not implement this method");
                 return;
             }
             else { // prosesing GET method
-                if (!parse_uri(uri, hostname, pathname, &port))
+                if (parse_uri(uri, hostname, pathname, &port))
                     return;
+                printf("uri: %s\nhostname: %s\npathname: %s\nport: %d\n", uri, hostname, pathname, port);
+                hostfd = Open_clientfd( hostname, port);
+                Rio_readinitb(&rio_clt, hostfd);
+
+//                while ((n_bytes = Rio_readlineb(&rio_srv, buf, strlen(buf))) != 0 ) {
+
+//                }
+                Rio_writen(hostfd, buf, strlen(buf));
+                Close(hostfd);
+                session = 0;
             }
 
         }
