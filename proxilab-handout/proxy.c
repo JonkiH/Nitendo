@@ -17,7 +17,7 @@
  */
 int parse_uri(char *uri, char *target_addr, char *path, int  *port);
 void format_log_entry(char *logstring, struct sockaddr_in *sockaddr, char *uri, int size);
-void echo(int connfd);
+void echo(int connfd, struct sockaddr_in *addr);
 void doit(int fd, struct sockaddr_in *addr);
 void read_requesthdrs(rio_t *rp);
 void serve_static(int fd, char *filename, int filesize);
@@ -30,8 +30,13 @@ void get_filetype(char *filename, char *filetype);
  */
 int main(int argc, char **argv)
 {
-    int listenfd, connfd, port, clientlen;
+    int listenfd;
+    int connfd;
+    int port;
+    socklen_t clientlen;
+    int check = 0;
     struct sockaddr_in clientaddr;
+ 
     /* Check arguments */
     if (argc != 2) {
         fprintf(stderr, "Usage: %s <port number>\n", argv[0]);
@@ -43,11 +48,14 @@ int main(int argc, char **argv)
 
     while (1){
         clientlen = sizeof(clientaddr);
-        connfd = Accept(listenfd, (SA *)&clientaddr, (socklen_t *)&clientlen);
-
-        doit(connfd, &clientaddr);
-        Close(connfd); 
-
+        if (check == clientlen)
+        {
+            
+            connfd = Accept(listenfd, (SA *)&clientaddr, &clientlen);
+            doit(connfd, &clientaddr);
+            Close(connfd); 
+        }
+        check = clientlen;
     }
     Close(listenfd);
     exit(0);
@@ -137,16 +145,18 @@ void format_log_entry(char *logstring, struct sockaddr_in *sockaddr,
 /* 
  *
  */
-void echo(int connfd){
-    int n;
+void echo(int connfd,  struct sockaddr_in *addr){
+    
+    size_t n;
     char buf[MAXLINE];
     rio_t rio;
 
     Rio_readinitb(&rio, connfd);
     while((n = Rio_readlineb(&rio, buf, MAXLINE)) != 0) {
-        printf("server recived %d bytes\n", n);
+        printf("server received %d bytes\n", n);
         Rio_writen(connfd, buf, n);
     }
+    
 }
 
 void doit(int fd, struct sockaddr_in *addr) {
@@ -155,8 +165,8 @@ void doit(int fd, struct sockaddr_in *addr) {
     int hostfd;                     // The host file dectritor
     int size = 0;                   // Transfer size
     size_t n_bytes;                 // Holds number of bytes
-    char buf[MAXLINE]       = "";   // Buffer
-    char method[MAXLINE]    = "";   // holds POST / GET method
+    char buf[MAXLINE];              // Buffer
+    char method[MAXLINE];           // holds POST / GET method
     char uri[MAXLINE]       = "";   // Uniform resourse indendifier
     char version[MAXLINE]   = "";   // http prodacal version
     char hostname[MAXLINE]  = "";   // name of the site
@@ -179,8 +189,10 @@ void doit(int fd, struct sockaddr_in *addr) {
     }
     /* Else process GET method */
     else { 
-        parse_uri(uri, hostname, pathname, &port);
-        printf("uri: %s\nhostname: %s\npathname: %s\nport: %d\n", uri, hostname, pathname, port);
+        if ( parse_uri(uri, hostname, pathname, &port) == -1) {
+            return;
+        }
+//        printf("uri: %s\nhostname: %s\npathname: %s\nport: %d\n", uri, hostname, pathname, port);
 
         /* listen to host */
         hostfd = Open_clientfd(hostname, port);
@@ -202,6 +214,7 @@ void doit(int fd, struct sockaddr_in *addr) {
             Rio_writen(fd, buf, n_bytes);
             size += n_bytes;
         }
+
         format_log_entry(proxy_log, addr, uri, size);
         Close(hostfd);
     }
