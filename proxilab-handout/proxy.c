@@ -12,57 +12,46 @@
 
 #include "csapp.h"
 
-
 /*
  * Function prototypes
  */
 int parse_uri(char *uri, char *target_addr, char *path, int  *port);
 void format_log_entry(char *logstring, struct sockaddr_in *sockaddr, char *uri, int size);
 void echo(int connfd);
-void doit(int fd);
+void doit(int fd, struct sockaddr_in *addr);
 void read_requesthdrs(rio_t *rp);
 void serve_static(int fd, char *filename, int filesize);
 void server_dynamic(int fd, char *filename, char *cgiargs);
 void clienterror(int fd, char *cause, char *errnum, char *chortmsg, char *longmsg);
 void get_filetype(char *filename, char *filetype);
 
-
 /* 
  * main - Main routine for the proxy program 
  */
 int main(int argc, char **argv)
 {
-
     int listenfd, connfd, port, clientlen;
     struct sockaddr_in clientaddr;
     /* Check arguments */
     if (argc != 2) {
-    fprintf(stderr, "Usage: %s <port number>\n", argv[0]);
-    exit(0);
+        fprintf(stderr, "Usage: %s <port number>\n", argv[0]);
+        exit(0);
     }
+    
     port = atoi(argv[1]);
-
     listenfd = Open_listenfd(port);
+
     while (1){
         clientlen = sizeof(clientaddr);
-
         connfd = Accept(listenfd, (SA *)&clientaddr, (socklen_t *)&clientlen);
-        // Just for fun
-        struct hostent *hp;
-        char *haddrp;   
-        hp = Gethostbyaddr((const char *)&clientaddr.sin_addr.s_addr, sizeof(clientaddr.sin_addr.s_addr), AF_INET);
-        haddrp = inet_ntoa(clientaddr.sin_addr);
-        printf("server connected to %s (%s)\n", hp->h_name, haddrp);
-//      echo(connfd);
-        // !Fun
 
-    	doit(connfd);
-        Close(connfd);
+        doit(connfd, &clientaddr);
+        Close(connfd); 
+
     }
-
+    Close(listenfd);
     exit(0);
 }
-
 
 /*
  * parse_uri - URI parser
@@ -80,8 +69,8 @@ int parse_uri(char *uri, char *hostname, char *pathname, int *port)
     int len;
 
     if (strncasecmp(uri, "http://", 7) != 0) {
-	   hostname[0] = '\0';
-	   return -1;
+       hostname[0] = '\0';
+       return -1;
     }
        
     /* Extract the host name */
@@ -94,16 +83,16 @@ int parse_uri(char *uri, char *hostname, char *pathname, int *port)
     /* Extract the port number */
     *port = 80; /* default */
     if (*hostend == ':')   
-	   *port = atoi(hostend + 1);
+       *port = atoi(hostend + 1);
     
     /* Extract the path */
     pathbegin = strchr(hostbegin, '/');
     if (pathbegin == NULL) {
-	   pathname[0] = '\0';
+       pathname[0] = '\0';
     }
     else {
-	   pathbegin++;	
-	   strcpy(pathname, pathbegin);
+       pathbegin++; 
+       strcpy(pathname, pathbegin);
     }
     
     return 0;
@@ -117,7 +106,7 @@ int parse_uri(char *uri, char *hostname, char *pathname, int *port)
  * of the response from the server (size).
  */
 void format_log_entry(char *logstring, struct sockaddr_in *sockaddr, 
-		      char *uri, int size)
+              char *uri, int size)
 {
     time_t now;
     char time_str[MAXLINE];
@@ -140,75 +129,82 @@ void format_log_entry(char *logstring, struct sockaddr_in *sockaddr,
     c = (host >> 8) & 0xff;
     d = host & 0xff;
 
-
     /* Return the formatted log entry string */
-    sprintf(logstring, "%s: %d.%d.%d.%d %s", time_str, a, b, c, d, uri);
+    sprintf(logstring, "%s: %d.%d.%d.%d %s %d", time_str, a, b, c, d, uri, size);
+    printf("%s\n", logstring);
 }
 
 /* 
  *
  */
 void echo(int connfd){
-	size_t n;
-	char buf[MAXLINE];
-	rio_t rio;
+    int n;
+    char buf[MAXLINE];
+    rio_t rio;
 
-	Rio_readinitb(&rio, connfd);
-	while((n = Rio_readlineb(&rio, buf, MAXLINE)) != 0) {
-		printf("server recived %d bytes\n", n);
-		Rio_writen(connfd, buf, n);
-
-	}
+    Rio_readinitb(&rio, connfd);
+    while((n = Rio_readlineb(&rio, buf, MAXLINE)) != 0) {
+        printf("server recived %d bytes\n", n);
+        Rio_writen(connfd, buf, n);
+    }
 }
 
-
-void doit(int fd) {
-	
-    size_t n_bytes;         // Holds number of bytes
-    int session = 1;        // true wile session is ongoing
-    int port;               // 
-    int hostfd;
-//	struct stat sbuf;
-	char buf[MAXLINE] = "";
-    char method[MAXLINE] = "";   // holds POST / GET method
-    char uri[MAXLINE] = "";      // Uniform resourse indendifier
-    char version[MAXLINE] = "";  // http prodacal version
-	char hostname[MAXLINE] = ""; // name of the site
-    char pathname[MAXLINE] = ""; // name of subsite
-    char body[MAXBUF] = "";      // retrun to client
-	rio_t rio_srv;          // server i/o         
-    rio_t rio_clt;          // client i/o
+void doit(int fd, struct sockaddr_in *addr) {
     
-    /* Read request line and headers */
+    int port;                       // The port
+    int hostfd;                     // The host file dectritor
+    int size = 0;                   // Transfer size
+    size_t n_bytes;                 // Holds number of bytes
+    char buf[MAXLINE]       = "";   // Buffer
+    char method[MAXLINE]    = "";   // holds POST / GET method
+    char uri[MAXLINE]       = "";   // Uniform resourse indendifier
+    char version[MAXLINE]   = "";   // http prodacal version
+    char hostname[MAXLINE]  = "";   // name of the site
+    char pathname[MAXLINE]  = "";   // name of subsite
+    char proxy_log[MAXLINE] = "";   // Log the server traffic
+    rio_t rio_srv;                  // server i/o         
+    rio_t rio_hst;                  // host   i/o
+
+    /* Initilize the input/output data stream */
     Rio_readinitb(&rio_srv, fd);
-	while (session) {
-        if ((n_bytes = Rio_readlineb(&rio_srv, buf, MAXLINE)) != 0) {
-            sscanf(buf, "%s %s %s", method, uri, version);
-            printf("buf: %s\nmethod: %s\nuri: %s\nversion: %s\n", buf, method, uri, version);
-            if (strcasecmp(method, "GET")) { // returns 0 if equals GET
-                clienterror(fd, method, "501", "Not Implemented", "Tiny dose not implement this method");
-                return;
-            }
-            else { // prosesing GET method
-                if (parse_uri(uri, hostname, pathname, &port))
-                    return;
-                printf("uri: %s\nhostname: %s\npathname: %s\nport: %d\n", uri, hostname, pathname, port);
-                hostfd = Open_clientfd( hostname, port);
-                Rio_readinitb(&rio_clt, hostfd);
 
-//                while ((n_bytes = Rio_readlineb(&rio_srv, buf, strlen(buf))) != 0 ) {
+    /* Read the request from client */
+    Rio_readlineb(&rio_srv, buf, MAXLINE);
+    sscanf(buf, "%s %s %s", method, uri, version);
 
-//                }
-                Rio_writen(hostfd, buf, strlen(buf));
-                Close(hostfd);
-                session = 0;
-            }
-
-        }
+    /* If method is not GET, send error */
+    if (strcasecmp(method, "GET")) { // returns 0 if equals GET
+        clienterror(fd, method, "501", "Not Implemented", "Unsupported method");
+        return;
     }
-    
+    /* Else process GET method */
+    else { 
+        parse_uri(uri, hostname, pathname, &port);
+        printf("uri: %s\nhostname: %s\npathname: %s\nport: %d\n", uri, hostname, pathname, port);
 
-    
+        /* listen to host */
+        hostfd = Open_clientfd(hostname, port);
+
+        /* Initilize i/o and send request */
+        Rio_readinitb(&rio_hst, hostfd);
+        Rio_writen(hostfd, buf, strlen(buf));
+
+        /* Read the response */
+        while(strcmp(buf, "\r\n") && ((n_bytes = Rio_readlineb(&rio_srv, buf, MAXLINE)) != 0))
+        {
+            /* Write response to server file descriptor */
+            Rio_writen(hostfd, buf, n_bytes);
+        }
+
+        /* Write the response to the client file descriptor */
+        while((n_bytes = Rio_readlineb(&rio_hst, buf, MAXLINE)) != 0)
+        {
+            Rio_writen(fd, buf, n_bytes);
+            size += n_bytes;
+        }
+        format_log_entry(proxy_log, addr, uri, size);
+        Close(hostfd);
+    }
 }
 
 /*
@@ -240,44 +236,44 @@ void clienterror(int fd, char *cause, char *errnum, char *shortmsg, char * longm
  * Serve_static
  */
 void serve_static(int fd, char *filename, int filesize){
-	int srcfd;
-	char *srcp, filetype[MAXLINE], buf[MAXBUF];
+    int srcfd;
+    char *srcp, filetype[MAXLINE], buf[MAXBUF];
 
-	/* Send response headers to client */
-	get_filetype(filename, filetype);
-	sprintf(buf, "HTTP/1.0 200 OK\r\n");
-	sprintf(buf, "%sServer: Tiny Web Server\r\n", buf);
-	sprintf(buf, "%sContent-length: %d\r\n", buf, filesize);
-	sprintf(buf, "%sContent-type: %s\r\n\r\n", buf, filetype);
-	Rio_writen(fd, buf, strlen(buf));
+    /* Send response headers to client */
+    get_filetype(filename, filetype);
+    sprintf(buf, "HTTP/1.0 200 OK\r\n");
+    sprintf(buf, "%sServer: Tiny Web Server\r\n", buf);
+    sprintf(buf, "%sContent-length: %d\r\n", buf, filesize);
+    sprintf(buf, "%sContent-type: %s\r\n\r\n", buf, filetype);
+    Rio_writen(fd, buf, strlen(buf));
 
-	/* Send response body to client */
-	srcfd = Open(filename, O_RDONLY, 0);
-	srcp = Mmap(0, filesize, PROT_READ, MAP_PRIVATE, srcfd, 0);
-	Close(srcfd);
-	Rio_writen(fd, srcp, filesize);
-	Munmap(srcp, filesize);
+    /* Send response body to client */
+    srcfd = Open(filename, O_RDONLY, 0);
+    srcp = Mmap(0, filesize, PROT_READ, MAP_PRIVATE, srcfd, 0);
+    Close(srcfd);
+    Rio_writen(fd, srcp, filesize);
+    Munmap(srcp, filesize);
 }
 
 /*
  * Server_dynamic
  */
 void server_dynamic(int fd, char *filename, char *cgiargs) {
-	char buf[MAXLINE], *emptylist[] = {NULL};
+    char buf[MAXLINE], *emptylist[] = {NULL};
 
-	/* Rerurn first part of HTTP response*/
-	sprintf(buf, "HTTP/1.0 200 OK\r\n");
-	Rio_writen(fd, buf, strlen(buf));
-	sprintf(buf, "Server: Tiny Web Server\r\n");
-	Rio_writen(fd, buf, strlen(buf));
+    /* Rerurn first part of HTTP response*/
+    sprintf(buf, "HTTP/1.0 200 OK\r\n");
+    Rio_writen(fd, buf, strlen(buf));
+    sprintf(buf, "Server: Tiny Web Server\r\n");
+    Rio_writen(fd, buf, strlen(buf));
 
-	if (Fork() == 0){
-		/* Reak server would set all CGI vars here */
-		setenv("QUERY_STRING", cgiargs, 1);
-		Dup2(fd, STDOUT_FILENO);
-		Execve(filename, emptylist, environ);
-	}
-	Wait(NULL); /* Parent waits for and reaps child*/
+    if (Fork() == 0){
+        /* Reak server would set all CGI vars here */
+        setenv("QUERY_STRING", cgiargs, 1);
+        Dup2(fd, STDOUT_FILENO);
+        Execve(filename, emptylist, environ);
+    }
+    Wait(NULL); /* Parent waits for and reaps child*/
 }
 
 void read_requesthdrs(rio_t *rp){
@@ -291,7 +287,6 @@ void read_requesthdrs(rio_t *rp){
     }
     return;
 }
-
 
 void get_filetype(char *filename, char *filetype){
     if(strstr(filename, ".html"))
