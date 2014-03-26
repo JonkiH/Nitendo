@@ -213,11 +213,19 @@ void doit(head *client) {
             size += n_bytes;
         }
         /* Read the response */
-        printf("%s\n",host->buf );
         get_head(host);
-        Rio_readnb(&host->rio, host->buf, host->Content_length );
-//        Read(host->fd, host->buf, host->Content_length);
-        Rio_writen(client->fd, host->buf, host->Content_length);
+        if (strstr(host->Transfer_encoding, "chunked"))
+        {
+            printf("%s", buf);
+            printf("%s",host->buf );
+            Rio_readlineb(&host->rio, buf, MAXLINE);
+        }
+        else{
+            Rio_readnb(&host->rio, buf, host->Content_length);
+            Rio_writen(client->fd, buf, host->Content_length);
+    //        Read(host->fd, host->buf, host->Content_length);
+            
+        }
         Close(host->fd);
     }
 
@@ -319,8 +327,10 @@ void get_filetype(char *filename, char *filetype){
 
 void get_head(head *hed){
     char buf[MAXLINE];
-//    char *st;
+    strcpy(hed->buf, "");
+    strcpy(hed->Transfer_encoding, "");
     while((Rio_readlineb(&hed->rio, buf, MAXLINE) != 0) && strcmp(buf, "\r\n")){
+        sprintf(hed->buf, "%s%s",hed->buf, buf);
         if (strncmp(buf, "Content-Leng", 12) == 0)        {
             sscanf(buf, "Content-Length:  %d", &hed->Content_length);
         }
@@ -331,18 +341,9 @@ void get_head(head *hed){
             sscanf(buf, "Content-Encoding:  %s", hed->Content_encoding);
         }
         if (strncmp(buf, "Transfer-Encoding:", 12) == 0)        {
-            sscanf(buf, "Transfer-Encoding:  %s", hed->Transfer_encoding);
+            sscanf(buf, "Transfer-Encoding: %s", hed->Transfer_encoding);
         }
-        printf("%s", buf );
-  /*      if (strncmp(buf, "Transfer-Encoding:"))
-        {
- //        }
-
-*/
     }
-    printf("Content_length: %d\n", hed->Content_length);
-    printf("Content_encoding: %s\n", hed->Content_encoding);
-    printf("Transfer-Encoding: %s\n", hed->Transfer_encoding);
 
     printf("DONE\n");
 }
