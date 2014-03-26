@@ -26,9 +26,10 @@ typedef struct
     char uri[MAXLINE];              // Uniform resourse indendifier
     char version[MAXLINE];          // http prodacal version
     int Content_length;             // length in bites
-    int chunked;                // True if the file is chunked
     char Content_type[MAXLINE];     // type of content
-    rio_t rio;                     // rio_t struct
+    char Content_encoding[MAXLINE]; // stores type of encodin
+    char Transfer_encoding[MAXLINE];// Sore transfer encoding
+    rio_t rio;                      // rio_t struct
     SA *addr;                       // client address
 }head;
 
@@ -56,6 +57,7 @@ int main(int argc, char **argv)
     int port;
     socklen_t clientlen;
     /* Check arguments */
+    Signal(SIGPIPE, SIG_IGN);
     if (argc != 2) {
         fprintf(stderr, "Usage: %s <port number>\n", argv[0]);
         exit(0);
@@ -200,22 +202,23 @@ void doit(head *client) {
         Rio_readinitb(&host->rio, host->fd);
         sprintf(host->buf, "HEAD http://%s/%s HTTP/1.0\r\n", client->server, client->subpath);
           
-        printf("%s", host->buf );
- 		printf("%s", buf);       
-        Rio_writen(host->fd, host->buf, strlen(buf));
+   //      printf("%s", host->buf );
+ 		// printf("%s", buf);       
+        Rio_writen(host->fd, buf, strlen(buf));
 
         int size = 0;
-/*        while(strcmp(buf, "\r\n") && ((n_bytes = Rio_readlineb(&client->rio, buf, MAXLINE)) != 0)) {
+        while(strcmp(buf, "\r\n") && ((n_bytes = Rio_readlineb(&client->rio, buf, MAXLINE)) != 0)) {
 //            printf("%s", buf );
             Rio_writen(host->fd, buf, strlen(buf));
             size += n_bytes;
         }
-*/        /* Read the response */
-        Rio_readnb(&host->rio, host->buf, MAXLINE);
+        /* Read the response */
         printf("%s\n",host->buf );
-/*        Rio_writen(client->fd, host->buf, 1270);
         get_head(host);
-*/        Close(host->fd);
+        Rio_readnb(&host->rio, host->buf, host->Content_length );
+//        Read(host->fd, host->buf, host->Content_length);
+        Rio_writen(client->fd, host->buf, host->Content_length);
+        Close(host->fd);
     }
 
     Free(host);
@@ -321,11 +324,25 @@ void get_head(head *hed){
         if (strncmp(buf, "Content-Leng", 12) == 0)        {
             sscanf(buf, "Content-Length:  %d", &hed->Content_length);
         }
-  /*      if (strncmp(buf, ""))
+        if (strncmp(buf, "Content-type", 12) == 0)        {
+            sscanf(buf, "Content-type:  %s", hed->Content_type);
+        }
+        if (strncmp(buf, "Content-Encoding", 12) == 0)        {
+            sscanf(buf, "Content-Encoding:  %s", hed->Content_encoding);
+        }
+        if (strncmp(buf, "Transfer-Encoding:", 12) == 0)        {
+            sscanf(buf, "Transfer-Encoding:  %s", hed->Transfer_encoding);
+        }
+        printf("%s", buf );
+  /*      if (strncmp(buf, "Transfer-Encoding:"))
         {
-            /* code */
-//        }
+ //        }
 
+*/
     }
+    printf("Content_length: %d\n", hed->Content_length);
+    printf("Content_encoding: %s\n", hed->Content_encoding);
+    printf("Transfer-Encoding: %s\n", hed->Transfer_encoding);
 
+    printf("DONE\n");
 }
