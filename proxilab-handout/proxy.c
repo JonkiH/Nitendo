@@ -47,6 +47,10 @@ void server_dynamic(int fd, char *filename, char *cgiargs);
 void clienterror(int fd, char *cause, char *errnum, char *chortmsg, char *longmsg);
 void get_filetype(char *filename, char *filetype);
 void get_head(head *head);
+void *thread(void *vargp);
+
+sem_t mutex_ghn;
+sem_t mutex_log;
 
 /* 
  * main - Main routine for the proxy program 
@@ -55,27 +59,34 @@ int main(int argc, char **argv)
 {
     int port;
     int listenfd;
+    pthread_t tid;
     
-    head *conhead = Malloc(sizeof(head));
+    head *conhead;
     /* Check arguments */
-    Signal(SIGPIPE, SIG_IGN);
     if (argc != 2) {
         fprintf(stderr, "Usage: %s <port number>\n", argv[0]);
         exit(0);
     }
     
+    Signal(SIGPIPE, SIG_IGN);
+    Sem_init(&mutex_ghn, 0, 1);
+    Sem_init(&mutex_log, 0, 1);
+    
     port = atoi(argv[1]);
     listenfd = Open_listenfd(port);
 
+    	conhead = Malloc(sizeof(head));
     while (1){
-        conhead->clientlen = sizeof(conhead->addr);            
+        conhead->clientlen = sizeof(conhead->addr); 
+        printf("main: %d\n", conhead->clientlen);           
         conhead->fd = Accept(listenfd, (SA*)&(conhead->addr), &(conhead->clientlen));
-        doit(conhead);
+        Pthread_create(&tid, NULL, thread, (void*)conhead);
+//        thread((void *)conhead);
         Close(conhead->fd);
+    	
     }
 
     Close(listenfd);
-    Free(conhead);
     exit(0);
 }
 
@@ -191,8 +202,8 @@ void doit(head *client) {
 
     /* Read the request from client */
     Rio_readlineb(&client->rio, buf, MAXLINE);
-    sscanf(buf, "%s %s %s", client->method, client->uri, client->version);
 
+    sscanf(buf, "%s %s %s", client->method, client->uri, client->version);
     /* If method is not GET, send error */
     if (strcasecmp(client->method, "GET")) { // returns 0 if equals GET
         clienterror(client->fd, client->method, "501", "Proxy Server Does Not  Implemented", "Unsupported method");
@@ -207,8 +218,9 @@ void doit(head *client) {
         printf("uri: %s\nhostname: %s\npathname: %s\nport: %d\n", client->uri, client->server, client->subpath, client->port);
 
         /* listen to host */
+        P(&mutex_ghn);
         host->fd = Open_clientfd(client->server, client->port);
-
+        V(&mutex_ghn);
         /* Initilize i/o and send request */
         Rio_readinitb(&host->rio, host->fd);
 
@@ -222,7 +234,7 @@ void doit(head *client) {
             sprintf(host->buf, "%s%s", host->buf, buf);       
         }
         Rio_writen(host->fd, host->buf, strlen(host->buf));
-        
+
 
         /* Write the response to the client file descriptor */
         if (strcmp(host->Transfer_encoding, "chunked"))
@@ -254,7 +266,9 @@ void doit(head *client) {
             }
         }
     }
+   	P(&mutex_log);
     format_log_entry(proxy_log, &(client->addr), client->uri, size);
+   	V(&mutex_log);
     Close(host->fd);
     Free(host);
 }
@@ -374,4 +388,17 @@ void get_head(head *head){
     }
 
     printf("DONE\n");
+}
+
+void *thread(void *vargp){
+	head *conhead = (head *)vargp;
+	head *hed = Malloc(sizeof(head));
+	hed->fd = conhead->fd;
+	hed->clientlen = conhead->clientlen;
+	hed->addr = conhead->addr;
+	Pthread_detach(pthread_self());
+	printf("%d\n", conhead->clientlen );
+	Free(vargp);
+	doit(hed);
+	return NULL;
 }
