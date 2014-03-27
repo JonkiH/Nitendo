@@ -2,8 +2,8 @@
  * proxy.c - CS:APP Web proxy
  *
  * TEAM MEMBERS:
- *     Andrew Carnegie, ac00@cs.cmu.edu 
- *     Harry Q. Bovik, bovik@cs.cmu.edu
+ *     Jón Heiðar Erlendsson, jone11@ru.is
+ *	   Ragnar Ómarsson, ragnaro08@ru.is
  * 
  * IMPORTANT: Give a high level description of your code here. You
  * must also provide a header comment at the beginning of each
@@ -46,12 +46,13 @@ void serve_static(int fd, char *filename, int filesize);
 void server_dynamic(int fd, char *filename, char *cgiargs);
 void clienterror(int fd, char *cause, char *errnum, char *chortmsg, char *longmsg);
 void get_filetype(char *filename, char *filetype);
-void get_head(head *head);
+void to_file(char *proxy_log);
 void *thread(void *vargp);
 
+sem_t mutex;
 sem_t mutex_ghn;
 sem_t mutex_log;
-sem_t mutex;
+
 /* 
  * main - Main routine for the proxy program 
  */
@@ -59,8 +60,8 @@ int main(int argc, char **argv)
 {
     int port;
     int listenfd;
-  	pthread_t tid;
-  	
+    pthread_t tid;
+    
     head *conhead;
     /* Check arguments */
     if (argc != 2) {
@@ -76,16 +77,10 @@ int main(int argc, char **argv)
     listenfd = Open_listenfd(port);
 
     while (1){
-    	conhead = Malloc(sizeof(head));
+        conhead = Malloc(sizeof(head));
         conhead->clientlen = sizeof(conhead->addr); 
         conhead->fd = Accept(listenfd, (SA*)&(conhead->addr), &(conhead->clientlen));
-//        P(&mutex);
-        // doit(conhead);
-//        V(&mutex);
-      	Pthread_create(&tid, NULL, thread, (void*)conhead);
-//        thread((void *)conhead);
-        // Close(conhead->fd);
- //   	Free(conhead);
+        Pthread_create(&tid, NULL, thread, (void*)conhead);
     }
     Close(listenfd);
     exit(0);
@@ -101,10 +96,10 @@ int main(int argc, char **argv)
  */
 int parse_uri(char *uri, char *hostname, char *pathname, int *port)
 {
+    int len;
     char *hostbegin;
     char *hostend;
     char *pathbegin;
-    int len;
 
     if (strncasecmp(uri, "http://", 7) != 0) {
        hostname[0] = '\0';
@@ -175,37 +170,25 @@ void format_log_entry(char *logstring, struct sockaddr_in *sockaddr,
 /* 
  *
  */
-void echo(int connfd,  struct sockaddr_in *addr){
-    
-    size_t n;
-    char buf[MAXLINE];
-    rio_t rio;
-
-    Rio_readinitb(&rio, connfd);
-    while((n = Rio_readlineb(&rio, buf, MAXLINE)) != 0) {
-        Rio_writen(connfd, buf, n);
-    }
-    
-}
 
 void doit(head client) {
-
+    
     int size = 0;                   // The size of the data transfer
     size_t n_bytes;                 // Holds number of bytes per read
     char buf[MAXLINE];              // Buffer
     char proxy_log[MAXLINE];        // Log the server traffic
-	head host;
+    head host;						// struct for host
     
     /* Initilize the input/output data stream */
     Rio_readinitb(&client.rio, client.fd);
+    
     /* Read the request from client */
-   
     if (Rio_readlineb(&client.rio, buf, MAXLINE) == -1){
-        printf("BLA\n");
-    	Pthread_exit(NULL);
+        Pthread_exit(NULL);
     }
     else {
         sscanf(buf, "%s %s %s", client.method, client.uri, client.version);
+        
         /* If method is not GET, send error */
         if (strcasecmp(client.method, "GET")) { // returns 0 if equals GET
             clienterror(client.fd, client.method, "501", "Proxy Server Does Not  Implemented", "Unsupported method");
@@ -214,15 +197,15 @@ void doit(head client) {
         /* Else process GET method */
         else { 
             if (parse_uri(client.uri, client.server, client.subpath, &client.port) < 0){
-                printf("There is an problem with url\n");
+                clienterror(client.fd, client.method, "501", "Proxy Server URI Error", "Parse Error");
                 return;
             }
-            // printf("uri: %s\nhostname: %s\npathname: %s\nport: %d\n", client->uri, client->server, client->subpath, client->port);
-
+            
             /* listen to host */
             P(&mutex_ghn);
             host.fd = Open_clientfd(client.server, client.port);
             V(&mutex_ghn);
+
             /* Initilize i/o and send request */
             Rio_readinitb(&host.rio, host.fd);
 
@@ -243,26 +226,31 @@ void doit(head client) {
             Rio_writen(host.fd, host.buf, strlen(host.buf));
 
 
-            /* Write the response to the client file descriptor */
+            /* Write the response to the client file descriptor 
+               http chunked transfer */
             if (strcmp(host.Transfer_encoding, "chunked")){
-                // printf("Transfer_encoding: Chunked\n");
                 while(((n_bytes = Rio_readlineb(&host.rio, buf, MAXLINE)) != 0) && strcmp(buf, "\0\r\r")){
                     Rio_writen(client.fd, buf, n_bytes);
                     size += n_bytes;
                 }
             }
+            /* http content length transfer */
             else{
-                // printf("Transfer_encoding: Not Chunked\n");
+            	/* get the content length */
                 size = host.Content_length;
 
+                /* if content less the maxline, transfer */
                 if(host.Content_length < MAXLINE){
                     Rio_readnb(&host.rio, buf, host.Content_length);
                     Rio_writen(client.fd, buf, host.Content_length); 
                 }
+                /* else split transfer into segments */
                 else if(host.Content_length > MAXLINE){
+            		/* Transfer maxline bytes */
                     while(host.Content_length > MAXLINE){
                         n_bytes = Rio_readnb(&host.rio, buf, MAXLINE);
                         Rio_writen(client.fd, buf, n_bytes);
+                        /* update the amount left to transfer*/
                         host.Content_length -= n_bytes; 
                     }
                     if(host.Content_length > 0){
@@ -271,10 +259,13 @@ void doit(head client) {
                     }  
                 }
             }
-            P(&mutex_log);
+            /* Format the proxy log string then write it to a file */
             format_log_entry(proxy_log, &(client.addr), client.uri, size);
-            V(&mutex_log);
+            to_file(proxy_log);
+            
+            /* Close the file descriptor and free memory */
             Close(host.fd);
+            Close(client.fd);
         }
     }
 }
@@ -372,34 +363,33 @@ void get_filetype(char *filename, char *filetype){
 }
  
 
-void get_head(head *head){
-    char buf[MAXLINE];
-    strcpy(head->buf, "");
-    strcpy(head->Transfer_encoding, "");
-    while((Rio_readlineb(&head->rio, buf, MAXLINE) != 0) && strcmp(buf, "\r\n")){
+void to_file(char *proxy_log){
 
-        sprintf(head->buf, "%s%s",head->buf, buf);
-        if (strncmp(buf, "Content-Length", 14) == 0)        {
-            sscanf(buf, "Content-Length:  %d", &head->Content_length);
-        }
-        if (strncmp(buf, "Content-type", 12) == 0)        {
-            sscanf(buf, "Content-type:  %s", head->Content_type);
-        }
-        if (strncmp(buf, "Content-Encoding", 16) == 0)        {
-            sscanf(buf, "Content-Encoding:  %s", head->Content_encoding);
-        }
-        if (strncmp(buf, "Transfer-Encoding", 17) == 0)        {
-            sscanf(buf, "Transfer-Encoding: %s", head->Transfer_encoding);
-        }
+    /* Lock the the thread while writing to file */ 
+    P(&mutex_log);
+
+    /* Open data stream to file, append to exsisting file */
+    FILE *logFile;
+    if((logFile = fopen("proxy.log", "a+")) == NULL){
+        /* if unable to open the file send error */
+        fprintf(stderr, "501 Proxy Server Error, unable to log\n");
+        return;
     }
+    /* Print to the file and close data stream */
+    fprintf(logFile, "%s\n", proxy_log);
+    fclose(logFile);
 
-    printf("DONE\n");
+    /* Unlock the thread */
+    V(&mutex_log); 
 }
 
 void *thread(void *vargp){
-	Pthread_detach(Pthread_self());
-	head conhead = *(head *)vargp;
-	Free(vargp);
-	doit(conhead);
-	return NULL;
+
+    Pthread_detach(Pthread_self());
+    
+    head thread = *(head *)vargp;
+    Free(vargp);
+    doit(thread);
+    
+    return NULL;
 }
