@@ -40,7 +40,7 @@ typedef struct
 int parse_uri(char *uri, char *target_addr, char *path, int  *port);
 void format_log_entry(char *logstring, struct sockaddr_in *sockaddr, char *uri, int size);
 void echo(int connfd, struct sockaddr_in *addr);
-void doit(head *client);
+void doit(head client);
 void read_requesthdrs(rio_t *rp);
 void serve_static(int fd, char *filename, int filesize);
 void server_dynamic(int fd, char *filename, char *cgiargs);
@@ -59,7 +59,7 @@ int main(int argc, char **argv)
 {
     int port;
     int listenfd;
-  	// pthread_t tid;
+  	pthread_t tid;
   	
     head *conhead;
     /* Check arguments */
@@ -80,12 +80,12 @@ int main(int argc, char **argv)
         conhead->clientlen = sizeof(conhead->addr); 
         conhead->fd = Accept(listenfd, (SA*)&(conhead->addr), &(conhead->clientlen));
 //        P(&mutex);
-        doit(conhead);
+        // doit(conhead);
 //        V(&mutex);
-      	// Pthread_create(&tid, NULL, thread, (void*)conhead);
+      	Pthread_create(&tid, NULL, thread, (void*)conhead);
 //        thread((void *)conhead);
-        Close(conhead->fd);
-    	Free(conhead);
+        // Close(conhead->fd);
+ //   	Free(conhead);
     }
     Close(listenfd);
     exit(0);
@@ -188,32 +188,32 @@ void echo(int connfd,  struct sockaddr_in *addr){
     
 }
 
-void doit(head *client) {
+void doit(head client) {
 
     int size = 0;                   // The size of the data transfer
     size_t n_bytes;                 // Holds number of bytes per read
     char buf[MAXLINE];              // Buffer
     char proxy_log[MAXLINE];        // Log the server traffic
+	head host;
     
     /* Initilize the input/output data stream */
-    Rio_readinitb(&client->rio, client->fd);
-
+    Rio_readinitb(&client.rio, client.fd);
     /* Read the request from client */
-    if (Rio_readlineb(&client->rio, buf, MAXLINE) == -1){
+   
+    if (Rio_readlineb(&client.rio, buf, MAXLINE) == -1){
         printf("BLA\n");
     	Pthread_exit(NULL);
     }
     else {
-        head *host = Malloc(sizeof(head));
-        sscanf(buf, "%s %s %s", client->method, client->uri, client->version);
+        sscanf(buf, "%s %s %s", client.method, client.uri, client.version);
         /* If method is not GET, send error */
-        if (strcasecmp(client->method, "GET")) { // returns 0 if equals GET
-            clienterror(client->fd, client->method, "501", "Proxy Server Does Not  Implemented", "Unsupported method");
+        if (strcasecmp(client.method, "GET")) { // returns 0 if equals GET
+            clienterror(client.fd, client.method, "501", "Proxy Server Does Not  Implemented", "Unsupported method");
             return;
         }
         /* Else process GET method */
         else { 
-            if (parse_uri(client->uri, client->server, client->subpath, &client->port) < 0){
+            if (parse_uri(client.uri, client.server, client.subpath, &client.port) < 0){
                 printf("There is an problem with url\n");
                 return;
             }
@@ -221,61 +221,60 @@ void doit(head *client) {
 
             /* listen to host */
             P(&mutex_ghn);
-            host->fd = Open_clientfd(client->server, client->port);
+            host.fd = Open_clientfd(client.server, client.port);
             V(&mutex_ghn);
             /* Initilize i/o and send request */
-            Rio_readinitb(&host->rio, host->fd);
+            Rio_readinitb(&host.rio, host.fd);
 
             /* Read the response */
-            sprintf(buf, "%s /%s %s\r\n", client->method, client->subpath, client->version);
-            strcpy(host->buf, buf);    
-            while(strcmp(buf, "\r\n") && ((n_bytes = Rio_readlineb(&client->rio, buf, MAXLINE)) != 0)) {
+            sprintf(buf, "%s /%s %s\r\n", client.method, client.subpath, client.version);
+            strcpy(host.buf, buf);    
+            while(strcmp(buf, "\r\n") && ((n_bytes = Rio_readlineb(&client.rio, buf, MAXLINE)) != 0)) {
                 if(strstr(buf, "chunked")){
-                    strcpy(host->Transfer_encoding, "chunked");
+                    strcpy(host.Transfer_encoding, "chunked");
                 }
                 else if(strncmp(buf, "Connection: keep-alive", 18) == 0){
-                    sprintf(host->buf, "%s%s", host->buf, "Connection: close\r\n");
+                    sprintf(host.buf, "%s%s", host.buf, "Connection: close\r\n");
                 }
                 else {
-                    sprintf(host->buf, "%s%s", host->buf, buf);       
+                    sprintf(host.buf, "%s%s", host.buf, buf);       
                 }
             }
-            Rio_writen(host->fd, host->buf, strlen(host->buf));
+            Rio_writen(host.fd, host.buf, strlen(host.buf));
 
 
             /* Write the response to the client file descriptor */
-            if (strcmp(host->Transfer_encoding, "chunked")){
+            if (strcmp(host.Transfer_encoding, "chunked")){
                 // printf("Transfer_encoding: Chunked\n");
-                while(((n_bytes = Rio_readlineb(&host->rio, buf, MAXLINE)) != 0) && strcmp(buf, "\0\r\r")){
-                    Rio_writen(client->fd, buf, n_bytes);
+                while(((n_bytes = Rio_readlineb(&host.rio, buf, MAXLINE)) != 0) && strcmp(buf, "\0\r\r")){
+                    Rio_writen(client.fd, buf, n_bytes);
                     size += n_bytes;
                 }
             }
             else{
                 // printf("Transfer_encoding: Not Chunked\n");
-                size = host->Content_length;
+                size = host.Content_length;
 
-                if(host->Content_length < MAXLINE){
-                    Rio_readnb(&host->rio, buf, host->Content_length);
-                    Rio_writen(client->fd, buf, host->Content_length); 
+                if(host.Content_length < MAXLINE){
+                    Rio_readnb(&host.rio, buf, host.Content_length);
+                    Rio_writen(client.fd, buf, host.Content_length); 
                 }
-                else if(host->Content_length > MAXLINE){
-                    while(host->Content_length > MAXLINE){
-                        n_bytes = Rio_readnb(&host->rio, buf, MAXLINE);
-                        Rio_writen(client->fd, buf, n_bytes);
-                        host->Content_length -= n_bytes; 
+                else if(host.Content_length > MAXLINE){
+                    while(host.Content_length > MAXLINE){
+                        n_bytes = Rio_readnb(&host.rio, buf, MAXLINE);
+                        Rio_writen(client.fd, buf, n_bytes);
+                        host.Content_length -= n_bytes; 
                     }
-                    if(host->Content_length > 0){
-                        Rio_readnb(&host->rio, buf, host->Content_length);
-                        Rio_writen(client->fd, buf, host->Content_length);
+                    if(host.Content_length > 0){
+                        Rio_readnb(&host.rio, buf, host.Content_length);
+                        Rio_writen(client.fd, buf, host.Content_length);
                     }  
                 }
             }
             P(&mutex_log);
-            format_log_entry(proxy_log, &(client->addr), client->uri, size);
+            format_log_entry(proxy_log, &(client.addr), client.uri, size);
             V(&mutex_log);
-            Close(host->fd);
-            Free(host);
+            Close(host.fd);
         }
     }
 }
@@ -399,12 +398,8 @@ void get_head(head *head){
 
 void *thread(void *vargp){
 	Pthread_detach(Pthread_self());
-	head *conhead = (head *)vargp;
-	head *hed = Malloc(sizeof(head));
-	hed->fd = conhead->fd;
-	hed->clientlen = conhead->clientlen;
-	hed->addr = conhead->addr;
+	head conhead = *(head *)vargp;
 	Free(vargp);
-	doit(hed);
+	doit(conhead);
 	return NULL;
 }
