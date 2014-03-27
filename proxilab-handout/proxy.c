@@ -19,18 +19,19 @@ typedef struct
 {
     int fd;                         // File descriptor
     int port;                       // Port 
+    int Content_length;             // length in bites
     char buf[MAXLINE];              // buf 
-    char subpath[MAXLINE];          // response from server
     char server[MAXLINE];           // server name
+    char subpath[MAXLINE];          // response from server
     char method[MAXLINE];           // holds POST / GET method
     char uri[MAXLINE];              // Uniform resourse indendifier
     char version[MAXLINE];          // http prodacal version
-    int Content_length;             // length in bites
     char Content_type[MAXLINE];     // type of content
     char Content_encoding[MAXLINE]; // stores type of encodin
     char Transfer_encoding[MAXLINE];// Sore transfer encoding
+    struct sockaddr_in addr;        // client address
+    socklen_t clientlen;            // client addr lenght
     rio_t rio;                      // rio_t struct
-    SA *addr;                       // client address
 }head;
 
 /*
@@ -45,17 +46,17 @@ void serve_static(int fd, char *filename, int filesize);
 void server_dynamic(int fd, char *filename, char *cgiargs);
 void clienterror(int fd, char *cause, char *errnum, char *chortmsg, char *longmsg);
 void get_filetype(char *filename, char *filetype);
-void get_head(head *hed);
+void get_head(head *head);
 
 /* 
  * main - Main routine for the proxy program 
  */
 int main(int argc, char **argv)
 {
-    int listenfd;
-    head *conhead = Malloc(sizeof(head));
     int port;
-    socklen_t clientlen;
+    int listenfd;
+    
+    head *conhead = Malloc(sizeof(head));
     /* Check arguments */
     Signal(SIGPIPE, SIG_IGN);
     if (argc != 2) {
@@ -67,11 +68,12 @@ int main(int argc, char **argv)
     listenfd = Open_listenfd(port);
 
     while (1){
-        clientlen = sizeof(conhead->addr);            
-        conhead->fd = Accept(listenfd, conhead->addr, &clientlen);
+        conhead->clientlen = sizeof(conhead->addr);            
+        conhead->fd = Accept(listenfd, (SA*)&(conhead->addr), &(conhead->clientlen));
         doit(conhead);
-        Close(conhead->fd); 
+        Close(conhead->fd);
     }
+
     Close(listenfd);
     Free(conhead);
     exit(0);
@@ -154,8 +156,8 @@ void format_log_entry(char *logstring, struct sockaddr_in *sockaddr,
     d = host & 0xff;
 
     /* Return the formatted log entry string */
-    sprintf(logstring, "%s: %d.%d.%d.%d %s %d", time_str, a, b, c, d, uri, size);
-    printf("%s\n", logstring);
+    sprintf(logstring, "%s: %d.%d.%d.%d %s /%d", time_str, a, b, c, d, uri, size);
+    printf("%s\n\n", logstring);
 }
 
 /* 
@@ -169,7 +171,6 @@ void echo(int connfd,  struct sockaddr_in *addr){
 
     Rio_readinitb(&rio, connfd);
     while((n = Rio_readlineb(&rio, buf, MAXLINE)) != 0) {
-        printf("server received %d bytes\n", n);
         Rio_writen(connfd, buf, n);
     }
     
@@ -177,9 +178,14 @@ void echo(int connfd,  struct sockaddr_in *addr){
 
 void doit(head *client) {
 
-    size_t n_bytes;                 // Holds number of bytes
+    int size = 0;                   // The size of the data transfer
+    size_t n_bytes;                 // Holds number of bytes per read
     char buf[MAXLINE];              // Buffer
+    char proxy_log[MAXLINE];        // Log the server traffic
+
+
     head *host = Malloc(sizeof(head));
+    
     /* Initilize the input/output data stream */
     Rio_readinitb(&client->rio, client->fd);
 
@@ -189,46 +195,67 @@ void doit(head *client) {
 
     /* If method is not GET, send error */
     if (strcasecmp(client->method, "GET")) { // returns 0 if equals GET
-        clienterror(client->fd, client->method, "501", "Not Implemented", "Unsupported method");
+        clienterror(client->fd, client->method, "501", "Proxy Server Does Not  Implemented", "Unsupported method");
         return;
     }
     /* Else process GET method */
     else { 
-        if ( parse_uri(client->uri, client->server, client->subpath, &client->port) < 0) {
-            printf("There is an problem whit url\n");
+        if (parse_uri(client->uri, client->server, client->subpath, &client->port) < 0){
+            printf("There is an problem with url\n");
             return;
         }
-        host->fd = Open_clientfd(client->server, client->port);
-        Rio_readinitb(&host->rio, host->fd);
-        sprintf(host->buf, "HEAD http://%s/%s HTTP/1.0\r\n", client->server, client->subpath);
-          
-   //      printf("%s", host->buf );
- 		// printf("%s", buf);       
-        Rio_writen(host->fd, buf, strlen(buf));
+        printf("uri: %s\nhostname: %s\npathname: %s\nport: %d\n", client->uri, client->server, client->subpath, client->port);
 
-        int size = 0;
-        while(strcmp(buf, "\r\n") && ((n_bytes = Rio_readlineb(&client->rio, buf, MAXLINE)) != 0)) {
-//            printf("%s", buf );
-            Rio_writen(host->fd, buf, strlen(buf));
-            size += n_bytes;
-        }
+        /* listen to host */
+        host->fd = Open_clientfd(client->server, client->port);
+
+        /* Initilize i/o and send request */
+        Rio_readinitb(&host->rio, host->fd);
+
         /* Read the response */
-        get_head(host);
-        if (strstr(host->Transfer_encoding, "chunked"))
+        sprintf(buf, "%s /%s %s\r\n", client->method, client->subpath, client->version);
+        strcpy(host->buf, buf);    
+        while(strcmp(buf, "\r\n") && ((n_bytes = Rio_readlineb(&client->rio, buf, MAXLINE)) != 0)) {
+            if(strstr(buf, "chunked")){
+                strcpy(host->Transfer_encoding, "chunked");
+            }
+            sprintf(host->buf, "%s%s", host->buf, buf);       
+        }
+        Rio_writen(host->fd, host->buf, strlen(host->buf));
+        
+
+        /* Write the response to the client file descriptor */
+        if (strcmp(host->Transfer_encoding, "chunked"))
         {
-            printf("%s", buf);
-            printf("%s",host->buf );
-            Rio_readlineb(&host->rio, buf, MAXLINE);
+            printf("Transfer_encoding: Chunked\n");
+            while(((n_bytes = Rio_readlineb(&host->rio, buf, MAXLINE)) != 0) && strcmp(buf, "\0\r\r")){
+                Rio_writen(client->fd, buf, n_bytes);
+                size += n_bytes;
+            }
         }
         else{
-            Rio_readnb(&host->rio, buf, host->Content_length);
-            Rio_writen(client->fd, buf, host->Content_length);
-    //        Read(host->fd, host->buf, host->Content_length);
-            
-        }
-        Close(host->fd);
-    }
+            printf("Transfer_encoding: Not Chunked\n");
+            size = host->Content_length;
 
+            if(host->Content_length < MAXLINE){
+                Rio_readnb(&host->rio, buf, host->Content_length);
+                Rio_writen(client->fd, buf, host->Content_length); 
+            }
+            else if(host->Content_length > MAXLINE){
+                while(host->Content_length > MAXLINE){
+                    n_bytes = Rio_readnb(&host->rio, buf, MAXLINE);
+                    Rio_writen(client->fd, buf, n_bytes);
+                    host->Content_length -= n_bytes; 
+                }
+                if(host->Content_length > 0){
+                    Rio_readnb(&host->rio, buf, host->Content_length);
+                    Rio_writen(client->fd, buf, host->Content_length);
+                }  
+            }
+        }
+    }
+    format_log_entry(proxy_log, &(client->addr), client->uri, size);
+    Close(host->fd);
     Free(host);
 }
 
@@ -240,11 +267,11 @@ void clienterror(int fd, char *cause, char *errnum, char *shortmsg, char * longm
     char body[MAXBUF];
 
     /* Build the HTTP response body */
-    sprintf(body, "<html><title>Tiny Error</title>");
+    sprintf(body, "<html><title>Proxy Error</title>");
     sprintf(body, "%s<body bgcolor=""ffffff"">\r\n", body);
     sprintf(body, "%s%s: %s\r\n", body, errnum, shortmsg);
     sprintf(body, "%s<p>%s: %s\r\n", body, longmsg, cause);
-    sprintf(body, "%s<hr><em>The Tiny Web server</em>\r\n", body);
+    sprintf(body, "%s<hr><em>The Proxy server</em>\r\n", body);
 
     /* Print the HTTP response */
     sprintf(buf, "HTTP/1.0 %s %s\r\n", errnum, shortmsg);
@@ -267,7 +294,7 @@ void serve_static(int fd, char *filename, int filesize){
     /* Send response headers to client */
     get_filetype(filename, filetype);
     sprintf(buf, "HTTP/1.0 200 OK\r\n");
-    sprintf(buf, "%sServer: Tiny Web Server\r\n", buf);
+    sprintf(buf, "%sServer: Proxy Web Server\r\n", buf);
     sprintf(buf, "%sContent-length: %d\r\n", buf, filesize);
     sprintf(buf, "%sContent-type: %s\r\n\r\n", buf, filetype);
     Rio_writen(fd, buf, strlen(buf));
@@ -289,7 +316,7 @@ void server_dynamic(int fd, char *filename, char *cgiargs) {
     /* Rerurn first part of HTTP response*/
     sprintf(buf, "HTTP/1.0 200 OK\r\n");
     Rio_writen(fd, buf, strlen(buf));
-    sprintf(buf, "Server: Tiny Web Server\r\n");
+    sprintf(buf, "Server: Proxy Web Server\r\n");
     Rio_writen(fd, buf, strlen(buf));
 
     if (Fork() == 0){
@@ -325,23 +352,24 @@ void get_filetype(char *filename, char *filetype){
 }
  
 
-void get_head(head *hed){
+void get_head(head *head){
     char buf[MAXLINE];
-    strcpy(hed->buf, "");
-    strcpy(hed->Transfer_encoding, "");
-    while((Rio_readlineb(&hed->rio, buf, MAXLINE) != 0) && strcmp(buf, "\r\n")){
-        sprintf(hed->buf, "%s%s",hed->buf, buf);
-        if (strncmp(buf, "Content-Leng", 12) == 0)        {
-            sscanf(buf, "Content-Length:  %d", &hed->Content_length);
+    strcpy(head->buf, "");
+    strcpy(head->Transfer_encoding, "");
+    while((Rio_readlineb(&head->rio, buf, MAXLINE) != 0) && strcmp(buf, "\r\n")){
+
+        sprintf(head->buf, "%s%s",head->buf, buf);
+        if (strncmp(buf, "Content-Length", 14) == 0)        {
+            sscanf(buf, "Content-Length:  %d", &head->Content_length);
         }
         if (strncmp(buf, "Content-type", 12) == 0)        {
-            sscanf(buf, "Content-type:  %s", hed->Content_type);
+            sscanf(buf, "Content-type:  %s", head->Content_type);
         }
-        if (strncmp(buf, "Content-Encoding", 12) == 0)        {
-            sscanf(buf, "Content-Encoding:  %s", hed->Content_encoding);
+        if (strncmp(buf, "Content-Encoding", 16) == 0)        {
+            sscanf(buf, "Content-Encoding:  %s", head->Content_encoding);
         }
-        if (strncmp(buf, "Transfer-Encoding:", 12) == 0)        {
-            sscanf(buf, "Transfer-Encoding: %s", hed->Transfer_encoding);
+        if (strncmp(buf, "Transfer-Encoding", 17) == 0)        {
+            sscanf(buf, "Transfer-Encoding: %s", head->Transfer_encoding);
         }
     }
 
