@@ -51,7 +51,7 @@ void *thread(void *vargp);
 
 sem_t mutex_ghn;
 sem_t mutex_log;
-
+sem_t mutex;
 /* 
  * main - Main routine for the proxy program 
  */
@@ -59,8 +59,8 @@ int main(int argc, char **argv)
 {
     int port;
     int listenfd;
-    pthread_t tid;
-    
+  	// pthread_t tid;
+  	
     head *conhead;
     /* Check arguments */
     if (argc != 2) {
@@ -71,21 +71,22 @@ int main(int argc, char **argv)
     Signal(SIGPIPE, SIG_IGN);
     Sem_init(&mutex_ghn, 0, 1);
     Sem_init(&mutex_log, 0, 1);
-    
+    Sem_init(&mutex, 0, 1);
     port = atoi(argv[1]);
     listenfd = Open_listenfd(port);
 
-    	conhead = Malloc(sizeof(head));
     while (1){
+    	conhead = Malloc(sizeof(head));
         conhead->clientlen = sizeof(conhead->addr); 
-        printf("main: %d\n", conhead->clientlen);           
         conhead->fd = Accept(listenfd, (SA*)&(conhead->addr), &(conhead->clientlen));
-        Pthread_create(&tid, NULL, thread, (void*)conhead);
+//        P(&mutex);
+        doit(conhead);
+//        V(&mutex);
+      	// Pthread_create(&tid, NULL, thread, (void*)conhead);
 //        thread((void *)conhead);
         Close(conhead->fd);
-    	
+    	Free(conhead);
     }
-
     Close(listenfd);
     exit(0);
 }
@@ -168,7 +169,7 @@ void format_log_entry(char *logstring, struct sockaddr_in *sockaddr,
 
     /* Return the formatted log entry string */
     sprintf(logstring, "%s: %d.%d.%d.%d %s /%d", time_str, a, b, c, d, uri, size);
-    printf("%s\n\n", logstring);
+    printf("%s\n", logstring);
 }
 
 /* 
@@ -193,84 +194,90 @@ void doit(head *client) {
     size_t n_bytes;                 // Holds number of bytes per read
     char buf[MAXLINE];              // Buffer
     char proxy_log[MAXLINE];        // Log the server traffic
-
-
-    head *host = Malloc(sizeof(head));
     
     /* Initilize the input/output data stream */
     Rio_readinitb(&client->rio, client->fd);
 
     /* Read the request from client */
-    Rio_readlineb(&client->rio, buf, MAXLINE);
-
-    sscanf(buf, "%s %s %s", client->method, client->uri, client->version);
-    /* If method is not GET, send error */
-    if (strcasecmp(client->method, "GET")) { // returns 0 if equals GET
-        clienterror(client->fd, client->method, "501", "Proxy Server Does Not  Implemented", "Unsupported method");
-        return;
+    if (Rio_readlineb(&client->rio, buf, MAXLINE) == -1){
+        printf("BLA\n");
+    	Pthread_exit(NULL);
     }
-    /* Else process GET method */
-    else { 
-        if (parse_uri(client->uri, client->server, client->subpath, &client->port) < 0){
-            printf("There is an problem with url\n");
+    else {
+        head *host = Malloc(sizeof(head));
+        sscanf(buf, "%s %s %s", client->method, client->uri, client->version);
+        /* If method is not GET, send error */
+        if (strcasecmp(client->method, "GET")) { // returns 0 if equals GET
+            clienterror(client->fd, client->method, "501", "Proxy Server Does Not  Implemented", "Unsupported method");
             return;
         }
-        printf("uri: %s\nhostname: %s\npathname: %s\nport: %d\n", client->uri, client->server, client->subpath, client->port);
-
-        /* listen to host */
-        P(&mutex_ghn);
-        host->fd = Open_clientfd(client->server, client->port);
-        V(&mutex_ghn);
-        /* Initilize i/o and send request */
-        Rio_readinitb(&host->rio, host->fd);
-
-        /* Read the response */
-        sprintf(buf, "%s /%s %s\r\n", client->method, client->subpath, client->version);
-        strcpy(host->buf, buf);    
-        while(strcmp(buf, "\r\n") && ((n_bytes = Rio_readlineb(&client->rio, buf, MAXLINE)) != 0)) {
-            if(strstr(buf, "chunked")){
-                strcpy(host->Transfer_encoding, "chunked");
+        /* Else process GET method */
+        else { 
+            if (parse_uri(client->uri, client->server, client->subpath, &client->port) < 0){
+                printf("There is an problem with url\n");
+                return;
             }
-            sprintf(host->buf, "%s%s", host->buf, buf);       
-        }
-        Rio_writen(host->fd, host->buf, strlen(host->buf));
+            // printf("uri: %s\nhostname: %s\npathname: %s\nport: %d\n", client->uri, client->server, client->subpath, client->port);
 
+            /* listen to host */
+            P(&mutex_ghn);
+            host->fd = Open_clientfd(client->server, client->port);
+            V(&mutex_ghn);
+            /* Initilize i/o and send request */
+            Rio_readinitb(&host->rio, host->fd);
 
-        /* Write the response to the client file descriptor */
-        if (strcmp(host->Transfer_encoding, "chunked"))
-        {
-            printf("Transfer_encoding: Chunked\n");
-            while(((n_bytes = Rio_readlineb(&host->rio, buf, MAXLINE)) != 0) && strcmp(buf, "\0\r\r")){
-                Rio_writen(client->fd, buf, n_bytes);
-                size += n_bytes;
-            }
-        }
-        else{
-            printf("Transfer_encoding: Not Chunked\n");
-            size = host->Content_length;
-
-            if(host->Content_length < MAXLINE){
-                Rio_readnb(&host->rio, buf, host->Content_length);
-                Rio_writen(client->fd, buf, host->Content_length); 
-            }
-            else if(host->Content_length > MAXLINE){
-                while(host->Content_length > MAXLINE){
-                    n_bytes = Rio_readnb(&host->rio, buf, MAXLINE);
-                    Rio_writen(client->fd, buf, n_bytes);
-                    host->Content_length -= n_bytes; 
+            /* Read the response */
+            sprintf(buf, "%s /%s %s\r\n", client->method, client->subpath, client->version);
+            strcpy(host->buf, buf);    
+            while(strcmp(buf, "\r\n") && ((n_bytes = Rio_readlineb(&client->rio, buf, MAXLINE)) != 0)) {
+                if(strstr(buf, "chunked")){
+                    strcpy(host->Transfer_encoding, "chunked");
                 }
-                if(host->Content_length > 0){
-                    Rio_readnb(&host->rio, buf, host->Content_length);
-                    Rio_writen(client->fd, buf, host->Content_length);
-                }  
+                else if(strncmp(buf, "Connection: keep-alive", 18) == 0){
+                    sprintf(host->buf, "%s%s", host->buf, "Connection: close\r\n");
+                }
+                else {
+                    sprintf(host->buf, "%s%s", host->buf, buf);       
+                }
             }
+            Rio_writen(host->fd, host->buf, strlen(host->buf));
+
+
+            /* Write the response to the client file descriptor */
+            if (strcmp(host->Transfer_encoding, "chunked")){
+                // printf("Transfer_encoding: Chunked\n");
+                while(((n_bytes = Rio_readlineb(&host->rio, buf, MAXLINE)) != 0) && strcmp(buf, "\0\r\r")){
+                    Rio_writen(client->fd, buf, n_bytes);
+                    size += n_bytes;
+                }
+            }
+            else{
+                // printf("Transfer_encoding: Not Chunked\n");
+                size = host->Content_length;
+
+                if(host->Content_length < MAXLINE){
+                    Rio_readnb(&host->rio, buf, host->Content_length);
+                    Rio_writen(client->fd, buf, host->Content_length); 
+                }
+                else if(host->Content_length > MAXLINE){
+                    while(host->Content_length > MAXLINE){
+                        n_bytes = Rio_readnb(&host->rio, buf, MAXLINE);
+                        Rio_writen(client->fd, buf, n_bytes);
+                        host->Content_length -= n_bytes; 
+                    }
+                    if(host->Content_length > 0){
+                        Rio_readnb(&host->rio, buf, host->Content_length);
+                        Rio_writen(client->fd, buf, host->Content_length);
+                    }  
+                }
+            }
+            P(&mutex_log);
+            format_log_entry(proxy_log, &(client->addr), client->uri, size);
+            V(&mutex_log);
+            Close(host->fd);
+            Free(host);
         }
     }
-   	P(&mutex_log);
-    format_log_entry(proxy_log, &(client->addr), client->uri, size);
-   	V(&mutex_log);
-    Close(host->fd);
-    Free(host);
 }
 
 /*
@@ -391,13 +398,12 @@ void get_head(head *head){
 }
 
 void *thread(void *vargp){
+	Pthread_detach(Pthread_self());
 	head *conhead = (head *)vargp;
 	head *hed = Malloc(sizeof(head));
 	hed->fd = conhead->fd;
 	hed->clientlen = conhead->clientlen;
 	hed->addr = conhead->addr;
-	Pthread_detach(pthread_self());
-	printf("%d\n", conhead->clientlen );
 	Free(vargp);
 	doit(hed);
 	return NULL;
