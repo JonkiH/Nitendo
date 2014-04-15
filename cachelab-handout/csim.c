@@ -14,7 +14,7 @@ void print_help(void);
 
 int main(int argc, char *argv[])
 {
-    int hit = 100; // keeps number of hits.
+    int hit = 234; // keeps number of hits.
     int miss = 0; // keeps number of misses.
     int evic = 0; // keeps number of evictions.
     int i; 	  // to use in for loobs.
@@ -81,7 +81,7 @@ int main(int argc, char *argv[])
      }
      
     printf("arg hit %d\n", hit);
-    printSummary(1000, miss, evic);
+    printSummary(hit, miss, evic);
     fclose(file);
     return 0;
 }
