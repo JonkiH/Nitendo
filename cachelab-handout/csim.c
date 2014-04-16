@@ -9,21 +9,48 @@
 #include <stdlib.h>
 #include <math.h>
 
+typedef struct {
+    int s;	// Number of set index bits (S = 2^s is the number of sets).
+    long long S;// Number of sets.
+    int E; 	// Associativity (number of line per set).
+    int b;	// Number of block bits (B = 2^b is block size)
+    long long B;// Block size (bytes)
+    int isv;	// for verbose;
+   
+    int hits; 	// keeps number of hits.
+    int miss;   // keeps number of misses.
+    int evic; 	// keeps number of evictions.
+} _parm;
+
+typedef struct {
+    int valid;
+    long long tag;
+    long long block;
+} _line;
+
+typedef struct {
+    _line *line;
+} _sets;
+
+typedef struct {
+    int S;
+    _sets *sets;
+} _cache;
+
 /* Helper function declitains */
+void data_load(_parm par, int addrs);
+void data_store(_parm par, int addrs);
+void data_modify(_parm par, int addrs);
+
+_cache cache_init(_parm par);
+void cache_clear(_cache cache);
 void print_help(void);
 
 int main(int argc, char *argv[])
 {
-    int hit = 234; // keeps number of hits.
-    int miss = 0; // keeps number of misses.
-    int evic = 0; // keeps number of evictions.
+    _parm par;
+    _cache cache;
     int i; 	  // to use in for loobs.
-    int s;	  // Number of set index bits (S = 2^s is the number of sets).
-    int S; 	  // Number of sets.
-    int E; 	  // Associativity (number of line per set).
-    int b;	  // Number of block bits (B = 2^b is block size)
-    int B;	  // Block size (bytes)
-    int isv = 0;  // for verbose;
     char *t;	  // <tracefile>: Name of the valgrinf trace to replay
     FILE *file;	  // File
     char op; 	  // Operation denotes the type of memmory access.
@@ -34,23 +61,28 @@ int main(int argc, char *argv[])
         print_help();
     }
 
+    par.isv = 0;
+    par.hits = 0;
+    par.miss = 0;
+    par.evic = 0;
+ 
     /* Insert to varibles and check if not right input */ 
     for (i = 1; i < argc; i++){
-	if (strcmp(argv[i], "-v") == 0) isv = 1;
+	if (strcmp(argv[i], "-v") == 0) par.isv = 1;
 	else if ((strcmp(argv[i], "-s") == 0) && (++i < argc)){
-	    s = atoi(argv[i]);
-	    if (!s) print_help();
+	    par.s = atoi(argv[i]);
+	    if (!par.s) print_help();
 	}
 	else if ((strcmp(argv[i], "-t") == 0) && (++i < argc)){
 	    t = argv[i];
 	}
 	else if ((strcmp(argv[i], "-E") == 0) && (++i < argc)){
-	    E = atoi(argv[i]);
-	    if (!E) print_help();
+	    par.E = atoi(argv[i]);
+	    if (!par.E) print_help();
 	}
 	else if ((strcmp(argv[i], "-b") == 0) && (++i) < argc){
-	    b = atoi(argv[i]);
-	    if (!b) print_help();
+	    par.b = atoi(argv[i]);
+	    if (!par.b) print_help();
 	}
 	else if (strcmp(argv[i], "-h") == 0) print_help();
 	else print_help();
@@ -62,29 +94,74 @@ int main(int argc, char *argv[])
     	printf("Can't open file!!\n");
 	print_help();
     }
-
-    S = pow(2, s);
-    B = pow(2, b);
-
-    int temp; 
+    par.S = pow(2.0, par.s);
+    par.B = 1 << par.b;
+    cache = cache_init(par); 
     while (fscanf(file, "%s %x,%x", &op, &addr, &size) != EOF) {
-	if (temp == 0 || temp < addr){
-	    temp = addr + B - 1;
-	    miss++;
-    	    printf("from file %s %d %x  MISS \n", &op, addr, size);
+	switch (op){
+	    case 'L':
+	        data_load(par, addr);
+		break;
+	    case 'S':
+		data_store(par, addr);
+		break;
+	    case 'M':
+		data_modify(par, addr);
+		break;
 	}
-	else {
-	    hit++;
-	    printf("from file %s %d %x  Hit \n", &op, addr, size);
-	}
-
      }
      
-    printf("arg hit %d\n", hit);
-    printSummary(hit, miss, evic);
+    printSummary(par.hits, par.miss, par.evic);
     fclose(file);
+    cache_clear(cache);
     return 0;
 }
+
+void data_load(_parm par, int addrs){
+    printf("L\n");
+}
+
+void data_store(_parm par, int addrs){
+    printf("S\n");
+}
+
+void data_modify(_parm par, int addrs){
+    printf("M\n");
+}
+
+
+_cache cache_init(_parm par){
+    _cache newCache;
+    _sets set;
+    _line line;
+    newCache.sets = (_sets *)malloc(sizeof(_sets) * par.S);
+    newCache.S = par.S;
+    int i, n;
+    for (i = 0; i < par.S; i++){
+    	set.line = (_line *)malloc(sizeof(_line) * par.E);
+	newCache.sets[i] = set;
+	for (n = 0; n < par.E; n++){
+	    line.valid = 0;
+	    line.tag = 0;
+	    line.block = 0;
+	    set.line[n] = line;
+	}
+    }
+    return newCache;
+}
+
+void cache_clear(_cache cache){
+    int i;
+    for (i = 0; i < cache.S; i++){
+	if (cache.sets[i].line != NULL){
+	    free(cache.sets[i].line);
+	}
+    }
+    if (cache.sets != NULL) {
+    	free(cache.sets);
+    }
+}
+
 
 /* Prints out message to user about the program */
 void print_help(void){
